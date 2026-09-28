@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Homebook</title>
+<style>
+:root{
+  --paper:#F5F7F4; --panel:#FFFFFF; --ink:#1D2922; --muted:#5E6B63; --line:#DCE3DE;
+  --saguaro:#2E5B47; --saguaro-2:#E3EDE7; --sky:#2F6F9F; --red:#B3261E; --amber:#9A6200; --amber-bg:#FFF3D6;
+  --radius-s:6px; --radius-m:10px;
+  font-size:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:"Segoe UI Variable","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  background:var(--paper);color:var(--ink);line-height:1.45}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:var(--radius-s);padding:.5rem .9rem}
+button:hover{border-color:var(--saguaro)}
+button.primary{background:var(--saguaro);border-color:var(--saguaro);color:#fff}
+button.primary:hover{background:#244a39}
+button.danger{color:var(--red)}
+button:disabled{opacity:.45;cursor:not-allowed}
+:focus-visible{outline:3px solid var(--sky);outline-offset:2px}
+input,select{border:1px solid var(--line);border-radius:var(--radius-s);padding:.45rem .55rem;background:#fff;min-width:0}
+input:focus,select:focus{border-color:var(--sky);outline:none;box-shadow:0 0 0 3px #2F6F9F22}
+
+.app{display:grid;grid-template-columns:260px 1fr;height:100vh}
+aside{background:var(--saguaro);color:#EAF2ED;padding:1.4rem 1rem;display:flex;flex-direction:column;gap:1.4rem;overflow:auto}
+.brand{font-size:1.35rem;font-weight:700;letter-spacing:-.01em;padding:0 .5rem}
+.brand small{display:block;font-size:.8rem;font-weight:400;opacity:.75}
+.side-h{font-size:.85rem;opacity:.75;padding:0 .5rem;margin-bottom:.3rem}
+.acct,.nav a{display:flex;justify-content:space-between;gap:.5rem;padding:.55rem .6rem;border-radius:var(--radius-s);
+  color:inherit;text-decoration:none;cursor:pointer;border:0;background:none;width:100%;text-align:left}
+.acct:hover,.nav a:hover{background:#ffffff14}
+.acct.on,.nav a.on{background:#ffffff26}
+.acct .num{opacity:.9}
+.side-add{background:none;border:1px dashed #ffffff55;color:#EAF2ED;width:100%;margin-top:.4rem}
+.side-add:hover{border-color:#fff}
+.save-state{margin-top:auto;font-size:.85rem;padding:.7rem;border-radius:var(--radius-s);background:#0000001f}
+.save-state b{display:block}
+.save-state button{margin-top:.5rem;width:100%;background:#fff;color:var(--saguaro);border:0;font-weight:600}
+
+main{overflow:auto;padding:1.6rem 2rem 3rem}
+.head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:1rem;margin-bottom:1.2rem}
+h1{font-size:1.7rem;margin:0;letter-spacing:-.015em}
+h2{font-size:1.15rem;margin:0 0 .8rem}
+.sub{color:var(--muted);margin:.2rem 0 0}
+.balance-strip{display:flex;gap:2.4rem;align-items:flex-end}
+.bal-main{font-size:2.6rem;font-weight:700;letter-spacing:-.02em;line-height:1}
+.bal-lbl{font-size:.85rem;color:var(--muted)}
+.bal-2{font-size:1.2rem;font-weight:600}
+.toolbar{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:1rem}
+.toolbar .grow{flex:1}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-m)}
+.pad{padding:1.1rem 1.2rem}
+
+table{width:100%;border-collapse:collapse}
+th{font-size:.82rem;font-weight:600;color:var(--muted);text-align:left;padding:.6rem .6rem;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:1}
+td{padding:.55rem .6rem;border-bottom:1px solid #EEF2EF;vertical-align:middle}
+tbody tr.tx:hover{background:#F3F7F5;cursor:pointer}
+td.pay{font-weight:600}
+td.pay small{display:block;font-weight:400;color:var(--muted)}
+.cat-pill{display:inline-block;font-size:.82rem;padding:.12rem .5rem;border-radius:99px;background:var(--saguaro-2);color:var(--saguaro)}
+.cat-pill.none{background:var(--amber-bg);color:var(--amber)}
+.in{color:var(--saguaro);font-weight:600}
+.neg{color:var(--red)}
+.clr{width:2.2rem;text-align:center}
+.clr button{width:1.8rem;height:1.8rem;padding:0;border-radius:50%;font-size:.8rem;font-weight:700;color:var(--muted)}
+.clr button.c{background:var(--saguaro-2);border-color:var(--saguaro);color:var(--saguaro)}
+.clr button.r{background:var(--saguaro);border-color:var(--saguaro);color:#fff}
+tr.newrow td{background:#FAFCFB;border-bottom:2px solid var(--line)}
+tr.newrow input,tr.newrow select{width:100%}
+.empty{padding:3rem 1rem;text-align:center;color:var(--muted)}
+.empty b{display:block;color:var(--ink);font-size:1.1rem;margin-bottom:.3rem}
+
+dialog{border:0;border-radius:var(--radius-m);padding:0;width:min(560px,94vw);box-shadow:0 20px 60px #1d29223a}
+dialog.wide{width:min(1000px,96vw)}
+dialog::backdrop{background:#1d292266}
+.dlg-h{padding:1.1rem 1.3rem;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.dlg-h h2{margin:0}
+.dlg-b{padding:1.2rem 1.3rem;max-height:70vh;overflow:auto}
+.dlg-f{padding:.9rem 1.3rem;border-top:1px solid var(--line);display:flex;gap:.6rem;justify-content:flex-end;align-items:center}
+.dlg-f .grow{flex:1}
+.x{border:0;background:none;font-size:1.4rem;line-height:1;padding:.2rem .5rem}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:.8rem 1rem}
+.form label{display:flex;flex-direction:column;gap:.25rem;font-size:.88rem;color:var(--muted)}
+.form label.full{grid-column:1/-1}
+.form input,.form select{color:var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--radius-s);overflow:hidden}
+.seg button{border:0;border-radius:0;padding:.45rem .9rem}
+.seg button.on{background:var(--saguaro);color:#fff}
+.note{font-size:.88rem;color:var(--muted)}
+.warn{background:var(--amber-bg);color:#5b3b00;border-radius:var(--radius-s);padding:.6rem .8rem;font-size:.9rem}
+.dup td{color:#8a958e}
+.tag{font-size:.75rem;padding:.1rem .45rem;border-radius:99px;background:var(--amber-bg);color:var(--amber);margin-left:.4rem;font-weight:600}
+
+.rec-sum{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1rem}
+.rec-sum div{background:var(--paper);border-radius:var(--radius-s);padding:.7rem .9rem}
+.rec-sum b{display:block;font-size:1.25rem}
+.rec-sum .ok b{color:var(--saguaro)}
+.rec-sum .bad b{color:var(--red)}
+
+.grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:1.2rem;align-items:start}
+.stat-row{display:flex;gap:2.4rem;flex-wrap:wrap;margin-bottom:1.2rem}
+.stat b{display:block;font-size:1.5rem}
+.stat span{font-size:.85rem;color:var(--muted)}
+.bar-row{display:grid;grid-template-columns:150px 1fr 90px;gap:.8rem;align-items:center;padding:.35rem 0}
+.bar{height:14px;border-radius:7px;background:var(--saguaro-2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--saguaro);border-radius:7px}
+.list-row{display:flex;justify-content:space-between;padding:.45rem 0;border-bottom:1px solid #EEF2EF}
+.pie-wrap{display:flex;gap:1.6rem;align-items:center;flex-wrap:wrap}
+.pie-wrap svg{flex:0 0 auto}
+.legend{flex:1;min-width:220px}
+.lg{display:grid;grid-template-columns:14px 1fr auto 3.2rem;gap:.6rem;align-items:center;padding:.3rem 0;border-bottom:1px solid #EEF2EF;font-size:.95rem}
+.sw{width:14px;height:14px;border-radius:4px}
+.lg .pct{color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.slice{transition:opacity .15s}
+.pie-wrap svg:hover .slice{opacity:.55}.pie-wrap svg .slice:hover{opacity:1}
+.chart-key{display:flex;gap:1.2rem;font-size:.88rem;color:var(--muted);margin-top:.4rem}
+.chart-key span::before{content:"";display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:.4rem;vertical-align:-1px;background:var(--c)}
+.due{font-size:.82rem;font-weight:600;padding:.12rem .5rem;border-radius:99px;white-space:nowrap}
+.due.late{background:#FCE4E4;color:var(--red)}.due.soon{background:var(--amber-bg);color:var(--amber)}.due.ok{background:var(--saguaro-2);color:var(--saguaro)}
+.upcoming{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:1rem;padding:.7rem .9rem;background:#fff;border:1px solid var(--line);border-left:4px solid var(--amber);border-radius:var(--radius-s)}
+.upcoming .it{display:flex;gap:.5rem;align-items:center;padding:.2rem .6rem;background:var(--paper);border-radius:var(--radius-s)}
+.upcoming button{padding:.25rem .6rem;font-size:.88rem}
+.rec-group h2{margin-top:1.4rem}
+.rec-group table{table-layout:fixed;min-width:900px}
+.rec-group th:nth-child(1){width:22%}.rec-group th:nth-child(2){width:17%}.rec-group th:nth-child(3){width:13%}
+.rec-group th:nth-child(4){width:11%}.rec-group th:nth-child(5){width:13%}.rec-group th:nth-child(6){width:12%}.rec-group th:nth-child(7){width:22%}
+td.acts{white-space:nowrap;text-align:right}td.acts button{padding:.3rem .65rem;font-size:.88rem;margin-left:.3rem}
+table.inv .ck{display:none}
+.cat-edit{display:grid;grid-template-columns:1fr 150px auto;gap:.6rem;align-items:center;padding:.35rem 0}
+.toast{position:fixed;bottom:1.4rem;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:.7rem 1.1rem;border-radius:var(--radius-s);opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
+.toast.show{opacity:1}
+@media (max-width:820px){.app{grid-template-columns:1fr}aside{flex-direction:row;flex-wrap:wrap}.grid2{grid-template-columns:1fr}main{padding:1rem}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand">Homebook<small>Your money stays on this computer</small></div>
+    <div>
+      <div class="side-h">Accounts</div>
+      <div id="acctList"></div>
+      <button class="side-add" id="addAcctBtn">Add account</button>
+    </div>
+    <div class="nav">
+      <div class="side-h">Views</div>
+      <a data-view="register" class="on">Register</a>
+      <a data-view="recurring">Recurring</a>
+      <a data-view="reports">Spending</a>
+      <a data-view="categories">Categories</a>
+      <a data-view="data">Save and backup</a>
+    </div>
+    <div class="save-state" id="saveState"></div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<dialog id="dlg"><div id="dlgBody"></div></dialog>
+<input type="file" id="fileImport" accept=".ofx,.qfx,.qif,.csv,.txt" hidden>
+<input type="file" id="fileOpen" accept=".json,.homebook" hidden>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ---------- data ---------- */
+const DEFAULT_CATS=[["Groceries","spend"],["Dining out","spend"],["Coffee","spend"],["Gas","spend"],["Car payment","spend"],["Car maintenance","spend"],
+["Rent or mortgage","spend"],["Utilities","spend"],["Phone and internet","spend"],["Insurance","spend"],["Medical","spend"],["Pharmacy","spend"],
+["Household supplies","spend"],["Home repair","spend"],["Clothing","spend"],["Personal care","spend"],["Shopping","spend"],["Entertainment","spend"],
+["Subscriptions","spend"],["Travel","spend"],["Pets","spend"],["Gifts","spend"],["Church and charity","spend"],["Education","spend"],["Hobbies","spend"],
+["Fitness","spend"],["Bank fees and interest","spend"],["Taxes","spend"],["Cash withdrawal","spend"],["Other","spend"],
+["Paycheck","income"],["Social Security or pension","income"],["Refund","income"],["Interest earned","income"],["Other income","income"],
+["Transfer","transfer"],["Transfer to savings","transfer"],["Transfer from savings","transfer"],["Credit card payment","transfer"],["Loan payment","spend"],["Retirement savings","transfer"],["Savings","transfer"],["Investment contribution","transfer"],["Investment withdrawal","transfer"],["Market change","transfer"],["Dividends and interest","transfer"]];
+const PALETTE=["#1F77B4","#FF7F0E","#2CA02C","#D62728","#9467BD","#F2B701","#17BECF","#E377C2","#8C564B","#003F5C",
+"#BCBD22","#7F7F7F","#00A86B","#FF1493","#4B0082","#A0522D","#6FA8DC","#808000","#FFB3A7","#2F4F4F","#B8860B","#C71585","#5F9EA0","#8B0000"];
+let rankColors={};
+const ACCT_TYPES={checking:"Checking",savings:"Savings",credit:"Credit card",cash:"Cash",
+  roth:"Roth IRA",traditional:"Traditional IRA",k401:"401(k)",b403:"403(b)",brokerage:"Brokerage",hsa:"HSA",edu529:"529 college savings",invest:"Other investment"};
+const INVEST=new Set(["roth","traditional","k401","b403","brokerage","hsa","edu529","invest"]);
+const isInv=a=>a&&INVEST.has(a.type);
+const acctOf=id=>S.accounts.find(a=>a.id===id);
+function ensureCats(){if((S.catsVersion||1)>=4)return false;let added=false;
+  for(const[name,kind]of DEFAULT_CATS)if(!S.categories.some(c=>c.name.toLowerCase()===name.toLowerCase())){S.categories.push({name,kind});added=true}
+  S.catsVersion=4;return true}
+const DESK=window.homebookDesktop||null;let deskPath="",saveChain=Promise.resolve();
+let S=null, view="register", curAcct=null, fileHandle=null, dirty=false, lastSaved=null, filterMonth="", search="";
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+function blank(){return{app:"homebook",version:1,catsVersion:4,recurring:[],accounts:[],categories:DEFAULT_CATS.map(([name,kind])=>({name,kind})),txns:[],payeeMap:{}}}
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money=c=>{const n=(c||0)/100;return(n<0?"-":"")+"$"+Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
+const toCents=v=>{if(v===""||v==null)return 0;const n=parseFloat(String(v).replace(/[$,\s]/g,"").replace(/^\((.*)\)$/,"-$1"));return isNaN(n)?0:Math.round(n*100)};
+const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
+const fmtDate=d=>{if(!d)return"";const[y,m,dd]=d.split("-");return`${+m}/${+dd}/${y}`};
+const monthName=ym=>{const[y,m]=ym.split("-");return new Date(+y,+m-1,1).toLocaleString("en-US",{month:"long",year:"numeric"})};
+function toast(t){const el=document.getElementById("toast");el.textContent=t;el.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove("show"),2400)}
+const catKind=n=>(S.categories.find(c=>c.name===n)||{}).kind;
+
+/* ---------- storage: autosave in browser + real file on disk ---------- */
+function persistLocal(){try{localStorage.setItem("homebook-data",JSON.stringify(S))}catch(e){}}
+function markDirty(){dirty=true;if(DESK){deskSave();return}persistLocal();renderSaveState();if(fileHandle)saveToFile(true)}
+function deskSave(){const text=JSON.stringify(S);renderSaveState();
+  saveChain=saveChain.then(()=>DESK.save(text)).then(()=>{dirty=false;lastSaved=new Date();renderSaveState()})
+    .catch(()=>{toast("Couldn't save. Check that the Documents folder is available.");renderSaveState()})}
+function loadLocal(){try{const r=localStorage.getItem("homebook-data");if(r){const d=JSON.parse(r);if(d&&d.app==="homebook")return d}}catch(e){}return null}
+const canFS="showSaveFilePicker" in window;
+async function saveToFile(quiet){
+  const data=JSON.stringify(S,null,1);
+  try{
+    if(canFS){
+      if(!fileHandle){fileHandle=await window.showSaveFilePicker({suggestedName:"My Homebook.json",types:[{description:"Homebook file",accept:{"application/json":[".json"]}}]})}
+      const w=await fileHandle.createWritable();await w.write(data);await w.close();
+    }else{
+      const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([data],{type:"application/json"}));
+      a.download="My Homebook "+today()+".json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+    }
+    dirty=false;lastSaved=new Date();renderSaveState();if(!quiet)toast("Saved to your computer");
+  }catch(e){if(e.name!=="AbortError"){fileHandle=null;toast("Couldn't save the file. Try Save again.")}renderSaveState()}
+}
+async function openFile(){
+  if(DESK){const t=await DESK.restore();if(t){loadData(t);deskSave()}return}
+  if(canFS){try{const[h]=await window.showOpenFilePicker({types:[{description:"Homebook file",accept:{"application/json":[".json"]}}]});
+    const txt=await(await h.getFile()).text();loadData(txt,h)}catch(e){if(e.name!=="AbortError")toast("Couldn't open that file.")}}
+  else document.getElementById("fileOpen").click();
+}
+function loadData(txt,handle){
+  try{const d=JSON.parse(txt);if(!d||d.app!=="homebook")throw 0;
+    S=d;S.payeeMap=S.payeeMap||{};S.recurring=S.recurring||[];ensureCats();fileHandle=handle||null;curAcct=S.accounts[0]?.id||null;dirty=false;lastSaved=new Date();
+    if(!DESK)persistLocal();render();toast("Opened your Homebook file")}
+  catch(e){toast("That isn't a Homebook file.")}
+}
+document.getElementById("fileOpen").onchange=async e=>{const f=e.target.files[0];if(f)loadData(await f.text());e.target.value=""};
+function renderSaveState(){
+  const el=document.getElementById("saveState");
+  if(DESK){el.innerHTML=dirty?`<b>Saving…</b>`:`<b>Saved on this computer</b>Every change saves automatically, with a daily backup.`;return}
+  let msg;
+  if(fileHandle&&!dirty)msg=`<b>Saved to your file</b>Changes save automatically.`;
+  else if(dirty)msg=`<b>Unsaved changes</b>Kept in this browser for now. Save to a file so nothing is lost.`;
+  else msg=`<b>Not saved to a file yet</b>Save to a file on your computer to keep a safe copy.`;
+  el.innerHTML=msg+(fileHandle&&!dirty?"":`<button id="saveNow">Save to file</button>`);
+  const b=document.getElementById("saveNow");if(b)b.onclick=()=>saveToFile();
+}
+window.addEventListener("beforeunload",e=>{if(dirty&&!DESK){e.preventDefault();e.returnValue=""}});
+
+/* ---------- calculations ---------- */
+const acctTx=id=>S.txns.filter(t=>t.acct===id);
+function sorted(list){return[...list].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(a.seq||0)-(b.seq||0))}
+function balances(id){const a=S.accounts.find(x=>x.id===id);let bal=a?a.opening:0,clr=bal;
+  for(const t of acctTx(id)){bal+=t.amt;if(t.status)clr+=t.amt}return{bal,clr}}
+function learnPayee(p,c){if(p&&c)S.payeeMap[p.trim().toLowerCase()]=c}
+function guessCat(p){if(!p)return"";const k=p.trim().toLowerCase();if(S.payeeMap[k])return S.payeeMap[k];
+  for(const key in S.payeeMap){if(key.length>3&&(k.includes(key)||key.includes(k)))return S.payeeMap[key]}return""}
+let seqN=0;const nextSeq=()=>Date.now()*10+(seqN++%10);
+
+/* ---------- sidebar ---------- */
+function renderSide(){
+  const el=document.getElementById("acctList");
+  const btn=a=>`<button class="acct ${a.id===curAcct&&view==="register"?"on":""}" data-id="${a.id}"><span>${esc(a.name)}</span><span class="num">${money(balances(a.id).bal)}</span></button>`;
+  const bank=S.accounts.filter(a=>!isInv(a)),inv=S.accounts.filter(isInv);
+  const total=S.accounts.reduce((s,a)=>s+balances(a.id).bal,0);
+  el.innerHTML=S.accounts.length?(bank.map(btn).join("")+(inv.length?`<div class="side-h" style="margin-top:.8rem">Investments</div>`+inv.map(btn).join(""):"")
+    +(S.accounts.length>1?`<div class="acct" style="cursor:default;border-top:1px solid #ffffff33;border-radius:0;margin-top:.5rem;padding-top:.7rem"><span>Net worth</span><span class="num"><b>${money(total)}</b></span></div>`:""))
+   :`<div class="note" style="color:#cfe0d6;padding:0 .6rem">No accounts yet</div>`;
+  el.querySelectorAll(".acct[data-id]").forEach(b=>b.onclick=()=>{curAcct=b.dataset.id;view="register";render()});
+  document.querySelectorAll(".nav a").forEach(a=>a.classList.toggle("on",a.dataset.view===view));
+}
+document.querySelectorAll(".nav a").forEach(a=>a.onclick=()=>{view=a.dataset.view;render()});
+document.getElementById("addAcctBtn").onclick=()=>accountDialog();
+
+/* ---------- register ---------- */
+function catOptions(sel){return`<option value="">Choose category</option>`+S.categories.map(c=>`<option ${c.name===sel?"selected":""}>${esc(c.name)}</option>`).join("")}
+function renderRegister(){
+  const m=document.getElementById("main");
+  if(!S.accounts.length){m.innerHTML=`<div class="panel empty" style="margin-top:3rem"><b>Start by adding your checking account</b>
+    Enter the account name and today's balance. Then you can add transactions or import a bank statement.<br><br>
+    <button class="primary" id="firstAcct">Add account</button> <button id="firstOpen">Open a saved Homebook file</button></div>`;
+    document.getElementById("firstAcct").onclick=()=>accountDialog();document.getElementById("firstOpen").onclick=openFile;return}
+  if(!S.accounts.find(a=>a.id===curAcct))curAcct=S.accounts[0].id;
+  const a=S.accounts.find(x=>x.id===curAcct),{bal,clr}=balances(a.id);
+  let run=a.opening;const rows=sorted(acctTx(a.id)).map(t=>{run+=t.amt;return{...t,run}});
+  const months=[...new Set(rows.map(r=>r.date.slice(0,7)))].sort().reverse();
+  const q=search.trim().toLowerCase();
+  const shown=rows.filter(r=>(!filterMonth||r.date.startsWith(filterMonth))&&(!q||(r.payee+" "+r.memo+" "+r.cat+" "+(r.num||"")+" "+(Math.abs(r.amt)/100).toFixed(2)).toLowerCase().includes(q))).reverse();
+  m.innerHTML=`
+  <div class="head">
+    <div><h1>${esc(a.name)}</h1><p class="sub">${ACCT_TYPES[a.type]||"Checking"}${isInv(a)?"":" account"}. <a href="#" id="editAcct" style="color:var(--sky)">Edit account</a></p></div>
+    <div class="balance-strip">
+      <div><div class="bal-lbl">${isInv(a)?"Current value":"Balance today"}</div><div class="bal-main num ${bal<0?"neg":""}">${money(bal)}</div></div>
+      ${isInv(a)?invStats(a):`<div><div class="bal-lbl">Cleared with bank</div><div class="bal-2 num">${money(clr)}</div></div>`}
+    </div>
+  </div>
+  ${upcomingStrip(a.id)}
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="Search payee, memo, amount" value="${esc(search)}" style="width:260px">
+    <select id="fm"><option value="">All months</option>${months.map(x=>`<option value="${x}" ${x===filterMonth?"selected":""}>${monthName(x)}</option>`).join("")}</select>
+    <span class="grow"></span>
+    <button id="xferBtn">Transfer money</button>
+    ${isInv(a)?`<button class="primary" id="valBtn">Update value</button>`:`<button id="impBtn">Import bank statement</button><button id="recBtn">Balance with statement</button>`}
+  </div>
+  <div class="panel" style="overflow:auto">
+  <table class="${isInv(a)?"inv":""}">
+    <thead><tr><th style="width:120px">Date</th><th class="ck" style="width:80px">Check #</th><th>Payee</th><th style="width:170px">Category</th>
+      <th class="num" style="width:120px">${isInv(a)?"Withdrawal":"Payment"}</th><th class="num" style="width:120px">${isInv(a)?"Contribution":"Deposit"}</th><th class="clr" title="Cleared">✓</th><th class="num" style="width:130px">Balance</th></tr></thead>
+    <tbody>
+      <tr class="newrow">
+        <td><input type="date" id="nDate" value="${today()}"></td>
+        <td class="ck"><input id="nNum" inputmode="numeric"></td>
+        <td><input id="nPayee" placeholder="Who was it paid to or from?" list="payees"><input id="nMemo" placeholder="Memo (optional)" style="margin-top:.3rem;font-size:.9rem"></td>
+        <td><select id="nCat">${catOptions("")}</select></td>
+        <td><input id="nOut" class="num" inputmode="decimal" placeholder="0.00"></td>
+        <td><input id="nIn" class="num" inputmode="decimal" placeholder="0.00"></td>
+        <td colspan="2"><button class="primary" id="nAdd" style="width:100%">Add</button></td>
+      </tr>
+      ${shown.map(r=>`<tr class="tx" data-id="${r.id}">
+        <td>${fmtDate(r.date)}</td><td class="ck">${esc(r.num||"")}</td>
+        <td class="pay">${esc(r.payee)}${r.memo?`<small>${esc(r.memo)}</small>`:""}</td>
+        <td>${r.cat?`<span class="cat-pill">${esc(r.cat)}</span>`:`<span class="cat-pill none">Needs a category</span>`}</td>
+        <td class="num">${r.amt<0?money(-r.amt):""}</td><td class="num in">${r.amt>0?money(r.amt):""}</td>
+        <td class="clr"><button class="${r.status||""}" data-clr="${r.id}" title="${r.status==="r"?"Reconciled":r.status==="c"?"Cleared: click to undo":"Click when it shows on your statement"}">${r.status==="r"?"R":r.status==="c"?"C":""}</button></td>
+        <td class="num ${r.run<0?"neg":""}">${money(r.run)}</td></tr>`).join("")}
+    </tbody>
+  </table>
+  ${shown.length?"":`<div class="empty"><b>${rows.length?"Nothing matches":"No transactions yet"}</b>${rows.length?"Try a different search or month.":"Add one above, or import a bank statement."}</div>`}
+  </div>
+  <datalist id="payees">${[...new Set(S.txns.map(t=>t.payee))].slice(0,400).map(p=>`<option value="${esc(p)}">`).join("")}</datalist>
+  <p class="note">Click any row to edit it. C means cleared with the bank; R means it was part of a finished reconciliation.</p>`;
+  const $=id=>document.getElementById(id);
+  $("q").oninput=e=>{search=e.target.value;const pos=e.target.selectionStart;renderRegister();$("q").focus();$("q").setSelectionRange(pos,pos)};
+  $("fm").onchange=e=>{filterMonth=e.target.value;renderRegister()};
+  if($("impBtn"))$("impBtn").onclick=()=>document.getElementById("fileImport").click();
+  if($("recBtn"))$("recBtn").onclick=reconcileDialog;
+  if($("valBtn"))$("valBtn").onclick=()=>valueDialog(a);
+  $("xferBtn").onclick=()=>transferDialog(a.id);
+  document.querySelectorAll("[data-up-enter]").forEach(b=>b.onclick=()=>{enterRecurring(S.recurring.find(r=>r.id===b.dataset.upEnter));markDirty();render();toast("Entered")});
+  $("editAcct").onclick=e=>{e.preventDefault();accountDialog(a)};
+  $("nPayee").onchange=()=>{const g=guessCat($("nPayee").value);if(g&&!$("nCat").value)$("nCat").value=g};
+  const add=()=>{
+    const out=toCents($("nOut").value),inn=toCents($("nIn").value),payee=$("nPayee").value.trim();
+    if(!payee){toast("Enter who it was paid to or from.");$("nPayee").focus();return}
+    if(!out&&!inn){toast("Enter a payment or a deposit amount.");$("nOut").focus();return}
+    if(out&&inn){toast("Use either Payment or Deposit, not both.");return}
+    const t={id:uid(),seq:nextSeq(),acct:a.id,date:$("nDate").value||today(),num:$("nNum").value.trim(),payee,memo:$("nMemo").value.trim(),cat:$("nCat").value,amt:inn?Math.abs(inn):-Math.abs(out),status:""};
+    S.txns.push(t);learnPayee(payee,t.cat);markDirty();render();toast("Added");document.getElementById("nPayee").focus();
+  };
+  $("nAdd").onclick=add;
+  document.querySelectorAll("tr.newrow input").forEach(i=>i.onkeydown=e=>{if(e.key==="Enter")add()});
+  document.querySelectorAll("[data-clr]").forEach(b=>b.onclick=e=>{e.stopPropagation();const t=S.txns.find(x=>x.id===b.dataset.clr);
+    if(t.status==="r"){toast("Reconciled items are locked. Edit the row to change it.");return}
+    t.status=t.status?"":"c";markDirty();render()});
+  document.querySelectorAll("tr.tx").forEach(tr=>tr.onclick=()=>txDialog(S.txns.find(x=>x.id===tr.dataset.id)));
+}
+
+/* ---------- dialogs ---------- */
+const dlg=document.getElementById("dlg");
+function openDlg(html,wide){document.getElementById("dlgBody").innerHTML=html;dlg.classList.toggle("wide",!!wide);if(!dlg.open)dlg.showModal();
+  dlg.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>dlg.close())}
+function accountDialog(a){
+  const isNew=!a;a=a||{name:"",type:"checking",opening:0};
+  openDlg(`<div class="dlg-h"><h2>${isNew?"Add account":"Edit account"}</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b"><div class="form">
+    <label class="full">Account name<input id="aName" value="${esc(a.name)}" placeholder="Checking"></label>
+    <label>Type<select id="aType"><optgroup label="Banking"><option value="checking">Checking</option><option value="savings">Savings</option><option value="credit">Credit card</option><option value="cash">Cash</option></optgroup>
+      <optgroup label="Investments and retirement"><option value="roth">Roth IRA</option><option value="traditional">Traditional IRA</option><option value="k401">401(k)</option><option value="b403">403(b)</option><option value="brokerage">Brokerage</option><option value="hsa">HSA</option><option value="edu529">529 college savings</option><option value="invest">Other investment</option></optgroup></select></label>
+    <label>Starting balance or value<input id="aOpen" class="num" inputmode="decimal" value="${(a.opening/100).toFixed(2)}"></label>
+    <p class="note full" style="grid-column:1/-1;margin:0">Use the balance from before your first transaction here. For a credit card, enter what you owe as a negative number. For an investment account, enter its current value from your latest statement.</p>
+  </div></div>
+  <div class="dlg-f">${isNew?"":`<button class="danger" id="aDel">Delete account</button>`}<span class="grow"></span><button data-close>Cancel</button><button class="primary" id="aSave">${isNew?"Add account":"Save"}</button></div>`);
+  document.getElementById("aType").value=a.type;
+  document.getElementById("aSave").onclick=()=>{
+    const name=document.getElementById("aName").value.trim();if(!name){toast("Give the account a name.");return}
+    if(isNew){a={id:uid(),name,type:document.getElementById("aType").value,opening:toCents(document.getElementById("aOpen").value)};S.accounts.push(a);curAcct=a.id;view="register"}
+    else{a.name=name;a.type=document.getElementById("aType").value;a.opening=toCents(document.getElementById("aOpen").value)}
+    dlg.close();markDirty();render()};
+  const d=document.getElementById("aDel");
+  if(d)d.onclick=()=>{const n=acctTx(a.id).length;if(!confirm(`Delete "${a.name}" and its ${n} transactions? This can't be undone.`))return;
+    S.txns=S.txns.filter(t=>t.acct!==a.id);S.accounts=S.accounts.filter(x=>x.id!==a.id);curAcct=S.accounts[0]?.id||null;dlg.close();markDirty();render()};
+}
+function txDialog(t){
+  openDlg(`<div class="dlg-h"><h2>Edit transaction</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b"><div class="form">
+    <label>Date<input type="date" id="eDate" value="${t.date}"></label>
+    <label>Check #<input id="eNum" value="${esc(t.num||"")}"></label>
+    <label class="full">Payee<input id="ePayee" value="${esc(t.payee)}"></label>
+    <label>Category<select id="eCat">${catOptions(t.cat)}</select></label>
+    <label>Account<select id="eAcct">${S.accounts.map(a=>`<option value="${a.id}" ${a.id===t.acct?"selected":""}>${esc(a.name)}</option>`).join("")}</select></label>
+    <label>Type<select id="eDir"><option value="out">Payment</option><option value="in">Deposit</option></select></label>
+    <label>Amount<input id="eAmt" class="num" inputmode="decimal" value="${(Math.abs(t.amt)/100).toFixed(2)}"></label>
+    <label class="full">Memo<input id="eMemo" value="${esc(t.memo||"")}"></label>
+    <label>Status<select id="eSt"><option value="">Not cleared</option><option value="c">Cleared</option><option value="r">Reconciled</option></select></label>
+  </div>${t.status==="r"?`<p class="warn" style="margin-top:1rem">This was part of a finished reconciliation. Changing the amount will throw off your balance with the bank.</p>`:""}</div>
+  <div class="dlg-f"><button class="danger" id="eDel">Delete</button><button id="eRep">Make this repeat</button><span class="grow"></span><button data-close>Cancel</button><button class="primary" id="eSave">Save</button></div>`);
+  const $=id=>document.getElementById(id);$("eDir").value=t.amt<0?"out":"in";$("eSt").value=t.status||"";
+  $("eSave").onclick=()=>{const amt=Math.abs(toCents($("eAmt").value));if(!amt){toast("Enter an amount.");return}
+    Object.assign(t,{date:$("eDate").value||t.date,num:$("eNum").value.trim(),payee:$("ePayee").value.trim(),cat:$("eCat").value,acct:$("eAcct").value,
+      amt:$("eDir").value==="out"?-amt:amt,memo:$("eMemo").value.trim(),status:$("eSt").value});
+    learnPayee(t.payee,t.cat);dlg.close();markDirty();render();toast("Saved")};
+  $("eRep").onclick=()=>{const d=new Date(t.date+"T12:00");d.setMonth(d.getMonth()+1);
+    recurringDialog(null,{payee:t.payee,cat:t.cat,amt:t.amt,acct:t.acct,freq:"monthly",next:d.toISOString().slice(0,10),memo:t.memo})};
+  $("eDel").onclick=()=>{if(!confirm(t.xfer?"Delete this transfer? The matching entry in the other account is deleted too.":"Delete this transaction?"))return;S.txns=S.txns.filter(x=>x.id!==t.id&&!(t.xfer&&x.xfer===t.xfer));dlg.close();markDirty();render();toast("Deleted")};
+}
+
+/* ---------- recurring ---------- */
+const FREQS={weekly:"Every week",biweekly:"Every 2 weeks",monthly:"Every month",quarterly:"Every 3 months",yearly:"Every year"};
+const PER_MONTH={weekly:52/12,biweekly:26/12,monthly:1,quarterly:1/3,yearly:1/12};
+function addMonths(iso,n,day){const[y,m]=iso.split("-").map(Number);const t=new Date(y,m-1+n,1);const last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate();
+  return t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(Math.min(day,last)).padStart(2,"0")}
+function addDays(iso,n){const d=new Date(iso+"T12:00");d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)}
+function advance(r){const day=r.day||+r.next.slice(8);
+  r.next=r.freq==="weekly"?addDays(r.next,7):r.freq==="biweekly"?addDays(r.next,14):addMonths(r.next,r.freq==="quarterly"?3:r.freq==="yearly"?12:1,day)}
+function enterRecurring(r){if(!r)return;if(!S.accounts.some(a=>a.id===r.acct)){toast("That payment's account no longer exists. Edit it first.");return}
+  S.txns.push({id:uid(),seq:nextSeq(),acct:r.acct,date:r.next,num:"",payee:r.payee,memo:r.memo||"",cat:r.cat||"",amt:r.amt,status:"",recId:r.id});
+  learnPayee(r.payee,r.cat);advance(r)}
+function runAutoRecurring(){let n=0;const t=today();
+  for(const r of S.recurring||[]){let guard=0;while(r.auto&&r.next<=t&&guard++<60){enterRecurring(r);n++}}return n}
+function daysUntil(iso){return Math.round((new Date(iso+"T12:00")-new Date(today()+"T12:00"))/864e5)}
+function dueBadge(iso){const d=daysUntil(iso);
+  if(d<0)return`<span class="due late">${-d===1?"1 day":-d+" days"} late</span>`;
+  if(d===0)return`<span class="due soon">Due today</span>`;
+  if(d<=7)return`<span class="due soon">Due in ${d===1?"1 day":d+" days"}</span>`;
+  return`<span class="due ok">${fmtDate(iso)}</span>`}
+function recGroup(r){if(r.amt>0)return"Money coming in";if(catKind(r.cat)==="transfer")return"Transfers and savings";if(r.cat==="Subscriptions")return"Subscriptions";return"Bills and payments"}
+function upcomingStrip(acct){const list=(S.recurring||[]).filter(r=>r.acct===acct&&!r.auto&&daysUntil(r.next)<=7).sort((a,b)=>a.next<b.next?-1:1);
+  if(!list.length)return"";
+  return`<div class="upcoming"><b>Coming up</b>${list.map(r=>`<span class="it">${esc(r.payee)} <span class="num">${money(Math.abs(r.amt))}</span> ${dueBadge(r.next)}<button data-up-enter="${r.id}">Enter</button></span>`).join("")}</div>`}
+function renderRecurring(){
+  const m=document.getElementById("main");const R=S.recurring||[];
+  const monthlyOut=R.filter(r=>r.amt<0&&catKind(r.cat)!=="transfer").reduce((s,r)=>s-r.amt*PER_MONTH[r.freq],0);
+  const monthlySubs=R.filter(r=>r.amt<0&&r.cat==="Subscriptions").reduce((s,r)=>s-r.amt*PER_MONTH[r.freq],0);
+  const monthlyIn=R.filter(r=>r.amt>0).reduce((s,r)=>s+r.amt*PER_MONTH[r.freq],0);
+  const groups=["Bills and payments","Subscriptions","Transfers and savings","Money coming in"];
+  m.innerHTML=`<div class="head"><div><h1>Recurring</h1><p class="sub">Bills, subscriptions, transfers and paychecks that repeat.</p></div>
+    <button class="primary" id="addRec">Add recurring payment</button></div>
+  ${R.length?`<div class="stat-row">
+    <div class="stat"><span>Bills and subscriptions, per month</span><b class="num" style="text-align:left">${money(Math.round(monthlyOut))}</b></div>
+    <div class="stat"><span>Subscriptions alone</span><b class="num" style="text-align:left">${money(Math.round(monthlySubs))}</b></div>
+    <div class="stat"><span>Regular money in, per month</span><b class="num in" style="text-align:left">${money(Math.round(monthlyIn))}</b></div>
+    <div class="stat"><span>Subscriptions per year</span><b class="num" style="text-align:left">${money(Math.round(monthlySubs*12))}</b></div></div>`:""}
+  ${R.length?groups.map(g=>{const list=R.filter(r=>recGroup(r)===g).sort((a,b)=>a.next<b.next?-1:1);if(!list.length)return"";
+    return`<div class="rec-group"><h2>${g}</h2><div class="panel" style="overflow:auto"><table><thead><tr><th>Name</th><th>Category</th><th>How often</th><th class="num">Amount</th><th>Next</th><th>Entered</th><th></th></tr></thead><tbody>
+    ${list.map(r=>`<tr><td class="pay">${esc(r.payee)}<small>${esc(S.accounts.find(a=>a.id===r.acct)?.name||"No account")}</small></td>
+      <td>${r.cat?`<span class="cat-pill">${esc(r.cat)}</span>`:""}</td><td>${FREQS[r.freq]}</td>
+      <td class="num ${r.amt>0?"in":""}">${money(Math.abs(r.amt))}</td><td>${dueBadge(r.next)}</td>
+      <td class="note">${r.auto?"Automatically":"When I click Enter"}</td>
+      <td class="acts"><button data-enter="${r.id}">Enter now</button><button data-skip="${r.id}">Skip</button><button data-edit="${r.id}">Edit</button></td></tr>`).join("")}
+    </tbody></table></div></div>`}).join(""):`<div class="panel empty"><b>No recurring payments yet</b>Add rent, utilities, phone, streaming services, paychecks, or a monthly transfer to savings.
+      Homebook will remind you when they're due, or enter them for you.<br><br><button class="primary" id="addRec2">Add recurring payment</button></div>`}
+  <p class="note" style="margin-top:1rem">Tip: open any transaction in the register and click Make this repeat.</p>`;
+  const add=()=>recurringDialog();document.getElementById("addRec").onclick=add;const a2=document.getElementById("addRec2");if(a2)a2.onclick=add;
+  m.querySelectorAll("[data-enter]").forEach(b=>b.onclick=()=>{enterRecurring(S.recurring.find(r=>r.id===b.dataset.enter));markDirty();render();toast("Entered in the register")});
+  m.querySelectorAll("[data-skip]").forEach(b=>b.onclick=()=>{const r=S.recurring.find(x=>x.id===b.dataset.skip);if(!confirm(`Skip ${r.payee} on ${fmtDate(r.next)}?`))return;advance(r);markDirty();render();toast("Skipped")});
+  m.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>recurringDialog(S.recurring.find(r=>r.id===b.dataset.edit)));
+}
+function recurringDialog(r,preset){
+  const isNew=!r;const v=r||Object.assign({payee:"",cat:"",amt:0,acct:curAcct||S.accounts[0]?.id,freq:"monthly",next:today(),auto:false,memo:""},preset||{});
+  if(!S.accounts.length){toast("Add an account first.");accountDialog();return}
+  openDlg(`<div class="dlg-h"><h2>${isNew?"Add recurring payment":"Edit recurring payment"}</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b"><div class="form">
+    <label class="full">Name or payee<input id="pPayee" value="${esc(v.payee)}" placeholder="Netflix, APS Electric, Rent" list="payees2"></label>
+    <label>Type<select id="pDir"><option value="out">Payment</option><option value="in">Money in</option></select></label>
+    <label>Amount<input id="pAmt" class="num" inputmode="decimal" value="${v.amt?(Math.abs(v.amt)/100).toFixed(2):""}" placeholder="0.00"></label>
+    <label>Category<select id="pCat">${catOptions(v.cat)}</select></label>
+    <label>Account<select id="pAcct">${S.accounts.map(a=>`<option value="${a.id}" ${a.id===v.acct?"selected":""}>${esc(a.name)}</option>`).join("")}</select></label>
+    <label>How often<select id="pFreq">${Object.entries(FREQS).map(([k,l])=>`<option value="${k}" ${k===v.freq?"selected":""}>${l}</option>`).join("")}</select></label>
+    <label>Next date<input type="date" id="pNext" value="${v.next}"></label>
+    <label class="full">Memo<input id="pMemo" value="${esc(v.memo||"")}"></label>
+    <label class="full">When it's due<select id="pAuto"><option value="0">Remind me, and I'll click Enter</option><option value="1">Enter it in the register automatically</option></select></label>
+    <p class="note full" style="grid-column:1/-1;margin:0">Automatic works well for fixed amounts like rent or a streaming service. For bills that change every month, like electric, use Remind me so you can type the real amount.</p>
+  </div><datalist id="payees2">${[...new Set(S.txns.map(t=>t.payee))].slice(0,400).map(p=>`<option value="${esc(p)}">`).join("")}</datalist></div>
+  <div class="dlg-f">${isNew?"":`<button class="danger" id="pDel">Delete</button>`}<span class="grow"></span><button data-close>Cancel</button><button class="primary" id="pSave">${isNew?"Add":"Save"}</button></div>`);
+  const $=id=>document.getElementById(id);$("pDir").value=v.amt>0?"in":"out";$("pAuto").value=v.auto?"1":"0";
+  $("pPayee").onchange=()=>{const g=guessCat($("pPayee").value);if(g&&!$("pCat").value)$("pCat").value=g};
+  $("pSave").onclick=()=>{const payee=$("pPayee").value.trim(),amt=Math.abs(toCents($("pAmt").value));
+    if(!payee){toast("Enter a name.");return}if(!amt){toast("Enter an amount.");return}if(!$("pNext").value){toast("Pick the next date.");return}
+    const data={payee,amt:$("pDir").value==="out"?-amt:amt,cat:$("pCat").value,acct:$("pAcct").value,freq:$("pFreq").value,next:$("pNext").value,
+      day:+$("pNext").value.slice(8),auto:$("pAuto").value==="1",memo:$("pMemo").value.trim()};
+    if(isNew)S.recurring.push({id:uid(),...data});else Object.assign(r,data);
+    learnPayee(payee,data.cat);
+    const n=runAutoRecurring();dlg.close();markDirty();render();toast(n?`Saved. Entered ${n} past-due ${n===1?"payment":"payments"}.`:"Saved")};
+  const d=$("pDel");if(d)d.onclick=()=>{if(!confirm(`Delete the recurring payment for ${r.payee}? Transactions already entered stay in the register.`))return;
+    S.recurring=S.recurring.filter(x=>x.id!==r.id);dlg.close();markDirty();render();toast("Deleted")};
+}
+
+/* ---------- investments and transfers ---------- */
+function invStats(a){const y=today().slice(0,4),tx=acctTx(a.id).filter(t=>t.date.startsWith(y));
+  const contrib=tx.filter(t=>t.amt>0&&t.cat!=="Market change"&&t.cat!=="Dividends and interest").reduce((s,t)=>s+t.amt,0);
+  const growth=tx.filter(t=>t.cat==="Market change"||t.cat==="Dividends and interest").reduce((s,t)=>s+t.amt,0);
+  return`<div><div class="bal-lbl">Contributed in ${y}</div><div class="bal-2 num">${money(contrib)}</div></div>
+    <div><div class="bal-lbl">Growth in ${y}</div><div class="bal-2 num ${growth<0?"neg":"in"}">${growth>0?"+":""}${money(growth)}</div></div>`}
+function valueDialog(a){const cur=balances(a.id).bal;
+  openDlg(`<div class="dlg-h"><h2>Update ${esc(a.name)} value</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b"><p class="note" style="margin-top:0">Look at your latest statement or log in to the account, and type the total value shown. Homebook records the difference as market change, so it doesn't count as a contribution.</p>
+  <div class="form"><label>Value as of<input type="date" id="vDate" value="${today()}"></label>
+  <label>Total value<input id="vAmt" class="num" inputmode="decimal" placeholder="${(cur/100).toFixed(2)}"></label></div>
+  <p id="vDiff" class="note"></p></div>
+  <div class="dlg-f"><button data-close>Cancel</button><button class="primary" id="vGo">Update</button></div>`);
+  const $=id=>document.getElementById(id);
+  $("vAmt").oninput=()=>{const d=toCents($("vAmt").value)-cur;$("vDiff").innerHTML=$("vAmt").value?`Change since last update: <b class="${d<0?"neg":"in"}">${d>0?"+":""}${money(d)}</b>`:""};
+  $("vGo").onclick=()=>{if(!$("vAmt").value.trim()){toast("Enter the total value.");return}const d=toCents($("vAmt").value)-cur;
+    if(d===0){dlg.close();toast("No change");return}
+    S.txns.push({id:uid(),seq:nextSeq(),acct:a.id,date:$("vDate").value||today(),num:"",payee:"Market value update",memo:"",cat:"Market change",amt:d,status:"c"});
+    dlg.close();markDirty();render();toast("Value updated")}}
+function transferDialog(fromId){
+  if(S.accounts.length<2){toast("Add a second account first, like savings or a Roth IRA.");return}
+  const opts=sel=>S.accounts.map(a=>`<option value="${a.id}" ${a.id===sel?"selected":""}>${esc(a.name)}</option>`).join("");
+  const other=S.accounts.find(a=>a.id!==fromId).id;
+  openDlg(`<div class="dlg-h"><h2>Transfer money</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b"><div class="form">
+    <label>From<select id="tFrom">${opts(fromId)}</select></label><label>To<select id="tTo">${opts(other)}</select></label>
+    <label>Date<input type="date" id="tDate" value="${today()}"></label><label>Amount<input id="tAmt" class="num" inputmode="decimal" placeholder="0.00"></label>
+    <label class="full">Memo<input id="tMemo" placeholder="Optional"></label></div>
+  <p class="note">Creates a matching entry in both accounts. Transfers never count as spending.</p></div>
+  <div class="dlg-f"><button data-close>Cancel</button><button class="primary" id="tGo">Transfer</button></div>`);
+  const $=id=>document.getElementById(id);
+  $("tGo").onclick=()=>{const f=$("tFrom").value,to=$("tTo").value,amt=Math.abs(toCents($("tAmt").value));
+    if(f===to){toast("Pick two different accounts.");return}if(!amt){toast("Enter an amount.");return}
+    const A=acctOf(f),B=acctOf(to),x=uid(),d=$("tDate").value||today(),memo=$("tMemo").value.trim();
+    const catOut=isInv(B)?"Investment contribution":B.type==="savings"?"Transfer to savings":B.type==="credit"?"Credit card payment":"Transfer";
+    const catIn=isInv(A)?"Investment withdrawal":A.type==="savings"?"Transfer from savings":isInv(B)?"Investment contribution":"Transfer";
+    S.txns.push({id:uid(),seq:nextSeq(),acct:f,date:d,num:"",payee:"Transfer to "+B.name,memo,cat:catOut,amt:-amt,status:"",xfer:x},
+                {id:uid(),seq:nextSeq(),acct:to,date:d,num:"",payee:"Transfer from "+A.name,memo,cat:catIn,amt,status:"",xfer:x});
+    dlg.close();markDirty();render();toast(`Moved ${money(amt)} to ${B.name}`)}}
+
+/* ---------- reconcile ---------- */
+function reconcileDialog(){
+  const a=S.accounts.find(x=>x.id===curAcct);
+  const startBal=a.opening+acctTx(a.id).filter(t=>t.status==="r").reduce((s,t)=>s+t.amt,0);
+  const open=sorted(acctTx(a.id).filter(t=>t.status!=="r"));
+  const picked=new Set(open.filter(t=>t.status==="c").map(t=>t.id));
+  openDlg(`<div class="dlg-h"><h2>Balance with your bank statement</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b">
+    <div class="form" style="margin-bottom:1rem">
+      <label>Statement ending date<input type="date" id="rDate" value="${today()}"></label>
+      <label>Statement ending balance<input id="rBal" class="num" inputmode="decimal" placeholder="0.00"></label>
+    </div>
+    <div class="rec-sum"><div><span class="note">Last reconciled balance</span><b class="num" style="text-align:left">${money(startBal)}</b></div>
+      <div><span class="note">Checked items total</span><b id="rClr" class="num" style="text-align:left"></b></div>
+      <div id="rDiffBox"><span class="note">Difference</span><b id="rDiff" class="num" style="text-align:left"></b></div></div>
+    <p class="note">Check off each item that appears on your statement. When the difference is $0.00, you're balanced.</p>
+    <table><thead><tr><th style="width:40px"></th><th>Date</th><th>Payee</th><th class="num">Payment</th><th class="num">Deposit</th></tr></thead>
+    <tbody id="rRows"></tbody></table>
+    ${open.length?"":`<div class="empty"><b>Everything is already reconciled</b></div>`}
+  </div>
+  <div class="dlg-f"><span class="grow note" id="rMsg"></span><button data-close>Cancel</button><button class="primary" id="rDone" disabled>Finish</button></div>`,true);
+  const $=id=>document.getElementById(id);
+  const draw=()=>{const end=$("rDate").value;
+    $("rRows").innerHTML=open.filter(t=>!end||t.date<=end).map(t=>`<tr><td><input type="checkbox" data-r="${t.id}" ${picked.has(t.id)?"checked":""} aria-label="Cleared"></td>
+      <td>${fmtDate(t.date)}</td><td>${esc(t.payee)}</td><td class="num">${t.amt<0?money(-t.amt):""}</td><td class="num in">${t.amt>0?money(t.amt):""}</td></tr>`).join("");
+    $("rRows").querySelectorAll("[data-r]").forEach(c=>c.onchange=()=>{c.checked?picked.add(c.dataset.r):picked.delete(c.dataset.r);calc()});calc()};
+  const calc=()=>{const clr=startBal+open.filter(t=>picked.has(t.id)).reduce((s,t)=>s+t.amt,0);$("rClr").textContent=money(clr);
+    const bv=$("rBal").value.trim();if(!bv){$("rDiff").textContent="Enter balance";$("rDiffBox").className="";$("rDone").disabled=true;return}
+    const diff=clr-toCents(bv);$("rDiff").textContent=money(diff);$("rDiffBox").className=diff===0?"ok":"bad";$("rDone").disabled=diff!==0;
+    $("rMsg").textContent=diff===0?"Balanced. Click Finish to lock these in.":""};
+  $("rBal").oninput=calc;$("rDate").onchange=draw;draw();
+  $("rDone").onclick=()=>{let n=0;for(const t of open)if(picked.has(t.id)){t.status="r";n++}else if(t.status==="c")t.status="";
+    dlg.close();markDirty();render();toast(`Balanced. ${n} items reconciled.`)};
+}
+
+/* ---------- import ---------- */
+function parseDate(s){s=String(s).trim();let m;
+  if(m=s.match(/^(\d{4})(\d{2})(\d{2})/))return`${m[1]}-${m[2]}-${m[3]}`;
+  if(m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))return`${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  if(m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.'\s]*(\d{2,4})/)){let y=+m[3];if(y<100)y+=y<70?2000:1900;return`${y}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`}
+  const d=new Date(s);if(!isNaN(d))return d.toISOString().slice(0,10);return""}
+function parseOFX(txt){const out=[];const re=/<STMTTRN>([\s\S]*?)(?:<\/STMTTRN>|(?=<STMTTRN>)|(?=<\/BANKTRANLIST>))/gi;let m;
+  const tag=(b,n)=>{const r=b.match(new RegExp("<"+n+">([^<\\r\\n]*)","i"));return r?r[1].trim():""};
+  while(m=re.exec(txt)){const b=m[1];const name=tag(b,"NAME")||tag(b,"PAYEE")||tag(b,"MEMO");
+    out.push({date:parseDate(tag(b,"DTPOSTED")),amt:toCents(tag(b,"TRNAMT")),payee:decodeEnt(name),memo:tag(b,"NAME")?decodeEnt(tag(b,"MEMO")):"",num:tag(b,"CHECKNUM"),fitid:tag(b,"FITID")})}
+  return out}
+function decodeEnt(s){return s.replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&apos;/g,"'").replace(/&quot;/g,'"')}
+function parseQIF(txt){const out=[];let cur={};
+  for(const raw of txt.split(/\r?\n/)){const line=raw.trimEnd();if(!line||line.startsWith("!"))continue;const k=line[0],v=line.slice(1).trim();
+    if(k==="^"){if(cur.date)out.push({date:cur.date,amt:cur.amt||0,payee:cur.payee||"(no payee)",memo:cur.memo||"",num:cur.num||"",cat:cur.cat||""});cur={};continue}
+    if(k==="D")cur.date=parseDate(v.replace("'","/"));else if(k==="T"||k==="U")cur.amt=toCents(v);else if(k==="P")cur.payee=v;
+    else if(k==="M")cur.memo=v;else if(k==="N")cur.num=/^\d+$/.test(v)?v:"";else if(k==="L"&&!v.startsWith("["))cur.cat=v.split(":")[0]}
+  return out}
+function parseCSV(txt){const rows=[];let row=[],f="",q=false;
+  for(let i=0;i<txt.length;i++){const c=txt[i];
+    if(q){if(c==='"'){if(txt[i+1]==='"'){f+='"';i++}else q=false}else f+=c}
+    else if(c==='"')q=true;else if(c===","){row.push(f);f=""}else if(c==="\n"||c==="\r"){if(c==="\r"&&txt[i+1]==="\n")i++;row.push(f);f="";if(row.some(x=>x.trim()))rows.push(row);row=[]}else f+=c}
+  row.push(f);if(row.some(x=>x.trim()))rows.push(row);return rows}
+
+let IMP=null;
+document.getElementById("fileImport").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;
+  const txt=await f.text(),name=f.name.toLowerCase();let items;
+  if(name.endsWith(".ofx")||name.endsWith(".qfx")||/<OFX>/i.test(txt))items=parseOFX(txt);
+  else if(name.endsWith(".qif")||/^!Type:/im.test(txt))items=parseQIF(txt);
+  else{const rows=parseCSV(txt);if(rows.length<2){toast("That file doesn't have any rows.");return}csvMapDialog(rows,f.name);return}
+  if(!items.length){toast("No transactions found in that file.");return}
+  reviewImport(items,f.name)};
+
+function csvMapDialog(rows,fname){
+  const h=rows[0].map(x=>x.trim());const low=h.map(x=>x.toLowerCase());
+  const find=(...ks)=>low.findIndex(x=>ks.some(k=>x.includes(k)));
+  const g={date:find("date"),desc:find("description","payee","name","merchant","memo"),amt:find("amount"),out:find("debit","withdraw","payment"),inn:find("credit","deposit"),num:find("check")};
+  const opts=sel=>`<option value="-1">Not in file</option>`+h.map((x,i)=>`<option value="${i}" ${i===sel?"selected":""}>${esc(x||"Column "+(i+1))}</option>`).join("");
+  openDlg(`<div class="dlg-h"><h2>Match the columns</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b"><p class="note" style="margin-top:0">Tell Homebook which column in <b>${esc(fname)}</b> holds each piece of information.</p>
+  <div class="form">
+    <label>Date<select id="cDate">${opts(g.date)}</select></label>
+    <label>Description or payee<select id="cDesc">${opts(g.desc)}</select></label>
+    <label>Amount (one column, minus for payments)<select id="cAmt">${opts(g.out>=0&&g.inn>=0?-1:g.amt)}</select></label>
+    <label>Check number<select id="cNum">${opts(g.num)}</select></label>
+    <label>Or: Payments column<select id="cOut">${opts(g.amt>=0&&!(g.out>=0&&g.inn>=0)?-1:g.out)}</select></label>
+    <label>And: Deposits column<select id="cIn">${opts(g.amt>=0&&!(g.out>=0&&g.inn>=0)?-1:g.inn)}</select></label>
+    <label class="full" style="flex-direction:row;align-items:center;gap:.5rem;color:var(--ink)"><input type="checkbox" id="cFlip"> My bank shows payments as positive numbers in the Amount column</label>
+  </div>
+  <p class="note">First row of the file: ${rows[1].map(esc).join(" | ")}</p></div>
+  <div class="dlg-f"><button data-close>Cancel</button><button class="primary" id="cGo">Continue</button></div>`);
+  document.getElementById("cGo").onclick=()=>{const v=id=>+document.getElementById(id).value;
+    const di=v("cDate"),pi=v("cDesc"),ai=v("cAmt"),oi=v("cOut"),ii=v("cIn"),ni=v("cNum"),flip=document.getElementById("cFlip").checked;
+    if(di<0||pi<0||(ai<0&&oi<0&&ii<0)){toast("Pick at least Date, Description and an amount column.");return}
+    const items=rows.slice(1).map(r=>{let amt=ai>=0?toCents(r[ai]):(ii>=0?Math.abs(toCents(r[ii])):0)-(oi>=0?Math.abs(toCents(r[oi])):0);if(flip&&ai>=0)amt=-amt;
+      return{date:parseDate(r[di]||""),payee:(r[pi]||"").trim(),amt,memo:"",num:ni>=0?(r[ni]||"").trim():""}}).filter(x=>x.date&&x.amt);
+    if(!items.length){toast("Couldn't read any transactions with those columns.");return}
+    reviewImport(items,fname)};
+}
+function reviewImport(items,fname){
+  if(!S.accounts.length){toast("Add an account first.");accountDialog();return}
+  const existing=S.txns;
+  items=items.map((it,i)=>{const dup=existing.some(t=>(it.fitid&&t.fitid===it.fitid)||(t.acct===curAcct&&t.date===it.date&&t.amt===it.amt&&t.payee.toLowerCase()===it.payee.toLowerCase())
+      ||(t.acct===curAcct&&!t.fitid&&t.amt===it.amt&&Math.abs(new Date(t.date)-new Date(it.date))<=3*864e5));
+    const known=S.categories.some(c=>c.name===it.cat);return{...it,i,dup,keep:!dup,cat:known?it.cat:guessCat(it.payee)}});
+  IMP=items;const nd=items.filter(x=>x.dup).length;
+  openDlg(`<div class="dlg-h"><h2>Review import</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b">
+    <div class="form" style="margin-bottom:.8rem"><label>Add to account<select id="iAcct">${S.accounts.map(a=>`<option value="${a.id}" ${a.id===curAcct?"selected":""}>${esc(a.name)}</option>`).join("")}</select></label>
+    <label>Mark imported items as<select id="iSt"><option value="c">Cleared (they came from the bank)</option><option value="">Not cleared</option></select></label></div>
+    <p class="note">${items.length} transactions found in ${esc(fname)}.${nd?` <b>${nd} look like ones you already have</b> and are unchecked.`:""} Categories were filled in from payees you've used before.</p>
+    <table><thead><tr><th style="width:40px"></th><th>Date</th><th>Payee</th><th style="width:190px">Category</th><th class="num">Amount</th></tr></thead>
+    <tbody>${items.map(it=>`<tr class="${it.dup?"dup":""}"><td><input type="checkbox" data-k="${it.i}" ${it.keep?"checked":""} aria-label="Import"></td>
+      <td>${fmtDate(it.date)}</td><td>${esc(it.payee)}${it.dup?`<span class="tag">Already added</span>`:""}</td>
+      <td><select data-c="${it.i}" style="width:100%">${catOptions(it.cat)}</select></td>
+      <td class="num ${it.amt>0?"in":""}">${money(it.amt)}</td></tr>`).join("")}</tbody></table>
+  </div>
+  <div class="dlg-f"><span class="grow note" id="iCount"></span><button data-close>Cancel</button><button class="primary" id="iGo">Import</button></div>`,true);
+  const cnt=()=>document.getElementById("iCount").textContent=IMP.filter(x=>x.keep).length+" selected";cnt();
+  document.querySelectorAll("[data-k]").forEach(c=>c.onchange=()=>{IMP[+c.dataset.k].keep=c.checked;cnt()});
+  document.querySelectorAll("[data-c]").forEach(s=>s.onchange=()=>{IMP[+s.dataset.c].cat=s.value});
+  document.getElementById("iGo").onclick=()=>{const acct=document.getElementById("iAcct").value,st=document.getElementById("iSt").value;let n=0;
+    for(const it of IMP.filter(x=>x.keep)){S.txns.push({id:uid(),seq:nextSeq(),acct,date:it.date,num:it.num||"",payee:it.payee,memo:it.memo||"",cat:it.cat||"",amt:it.amt,status:st,fitid:it.fitid||""});learnPayee(it.payee,it.cat);n++}
+    curAcct=acct;view="register";dlg.close();markDirty();render();toast(`Imported ${n} transactions`)};
+}
+
+/* ---------- reports ---------- */
+function renderReports(){
+  const m=document.getElementById("main");
+  const months=[...new Set(S.txns.map(t=>t.date.slice(0,7)))].sort().reverse();
+  if(!filterMonth||!months.includes(filterMonth))filterMonth=months[0]||today().slice(0,7);
+  const ym=filterMonth,[y,mo]=ym.split("-").map(Number),prev=new Date(y,mo-2,1),pym=prev.getFullYear()+"-"+String(prev.getMonth()+1).padStart(2,"0");
+  const inMonth=k=>S.txns.filter(t=>t.date.startsWith(k)&&catKind(t.cat)!=="transfer"&&!t.xfer&&!isInv(acctOf(t.acct)));
+  const cur=inMonth(ym),last=inMonth(pym);
+  const spent=l=>l.filter(t=>t.amt<0).reduce((s,t)=>s-t.amt,0),got=l=>l.filter(t=>t.amt>0).reduce((s,t)=>s+t.amt,0);
+  const byCat={};cur.filter(t=>t.amt<0).forEach(t=>{const k=t.cat||"No category";byCat[k]=(byCat[k]||0)-t.amt});
+  const lastCat={};last.filter(t=>t.amt<0).forEach(t=>{const k=t.cat||"No category";lastCat[k]=(lastCat[k]||0)-t.amt});
+  const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]),max=cats[0]?.[1]||1;
+  const payees={};cur.filter(t=>t.amt<0).forEach(t=>payees[t.payee]=(payees[t.payee]||0)-t.amt);
+  const top=Object.entries(payees).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const s=spent(cur),ls=spent(last),chg=ls?Math.round((s/ls-1)*100):null;
+  m.innerHTML=`<div class="head"><div><h1>Spending</h1><p class="sub">Checking, savings, credit cards and cash. Transfers and investment accounts aren't counted.</p></div>
+    <select id="rm">${(months.length?months:[ym]).map(x=>`<option value="${x}" ${x===ym?"selected":""}>${monthName(x)}</option>`).join("")}</select></div>
+  <div class="stat-row">
+    <div class="stat"><span>Spent</span><b class="num" style="text-align:left">${money(s)}</b></div>
+    <div class="stat"><span>Money in</span><b class="num in" style="text-align:left">${money(got(cur))}</b></div>
+    <div class="stat"><span>Left over</span><b class="num ${got(cur)-s<0?"neg":""}" style="text-align:left">${money(got(cur)-s)}</b></div>
+    <div class="stat"><span>Compared with ${monthName(pym)}</span><b style="text-align:left" class="${chg>0?"neg":chg<0?"in":""}">${chg==null?"No data":(chg>0?"+":"")+chg+"%"}</b></div>
+  </div>
+  <div class="grid2">
+    <div class="panel pad"><h2>Where your money went</h2>${cats.length?pieChart(cats,s):`<div class="empty"><b>No spending this month</b>Add or import transactions to see the chart.</div>`}</div>
+    <div class="panel pad"><h2>Top places you spent</h2>${top.length?top.map(([p,v])=>`<div class="list-row"><span>${esc(p)}</span><span class="num">${money(v)}</span></div>`).join(""):`<p class="note">Nothing yet.</p>`}</div>
+  </div>
+  <div class="panel pad" style="margin-top:1.2rem"><h2>Last 6 months</h2>${trendChart(ym,spent,got,inMonth)}</div>
+  <div class="panel pad" style="margin-top:1.2rem"><h2>Compared with ${monthName(pym)}</h2>${cats.length?cats.map(([k,v])=>{const d=v-(lastCat[k]||0);return`<div class="bar-row"><span>${esc(k)}</span><div class="bar"><i style="width:${Math.max(2,v/max*100)}%;background:${catColor(k)}"></i></div>
+      <span class="num">${money(v)}<br><small class="${d>0?"neg":"in"}" style="font-weight:400">${(d>0?"+":"")+money(d)}</small></span></div>`}).join(""):`<p class="note">Nothing to compare yet.</p>`}</div>`;
+  document.getElementById("rm").onchange=e=>{filterMonth=e.target.value;renderReports()};
+}
+
+function catColor(name){if(rankColors[name])return rankColors[name];const i=S.categories.findIndex(c=>c.name===name);return i<0?"#9AA5A0":PALETTE[i%PALETTE.length]}
+function pieChart(cats,total){
+  const R=90,r=54,cx=110,cy=110;let ang=-Math.PI/2;
+  const pt=(a,rad)=>[cx+rad*Math.cos(a),cy+rad*Math.sin(a)];
+  rankColors={};const items=cats.map(([k,v],i)=>{const c=PALETTE[i%PALETTE.length];rankColors[k]=c;return{k,v,c,p:v/total}});
+  const paths=items.map(it=>{const a2=ang+it.p*Math.PI*2;let d;
+    if(it.p>=.9999){d=`M${cx} ${cy-R}A${R} ${R} 0 1 1 ${cx-.01} ${cy-R}L${cx-.01} ${cy-r}A${r} ${r} 0 1 0 ${cx} ${cy-r}Z`}
+    else{const[x1,y1]=pt(ang,R),[x2,y2]=pt(a2,R),[x3,y3]=pt(a2,r),[x4,y4]=pt(ang,r),L=it.p>.5?1:0;
+      d=`M${x1} ${y1}A${R} ${R} 0 ${L} 1 ${x2} ${y2}L${x3} ${y3}A${r} ${r} 0 ${L} 0 ${x4} ${y4}Z`}
+    ang=a2;return`<path class="slice" d="${d}" fill="${it.c}" stroke="#fff" stroke-width="2"><title>${esc(it.k)}: ${money(it.v)} (${Math.round(it.p*100)}%)</title></path>`}).join("");
+  return`<div class="pie-wrap"><svg width="220" height="220" viewBox="0 0 220 220" role="img" aria-label="Spending by category">${paths}
+    <text x="110" y="104" text-anchor="middle" font-size="12" fill="#5E6B63">Spent</text>
+    <text x="110" y="126" text-anchor="middle" font-size="17" font-weight="700" fill="#1D2922">${money(total)}</text></svg>
+    <div class="legend">${items.map(it=>`<div class="lg"><span class="sw" style="background:${it.c}"></span><span>${esc(it.k)}</span><span class="num">${money(it.v)}</span><span class="pct">${it.p<.005?"<1":Math.round(it.p*100)}%</span></div>`).join("")}</div></div>`}
+function trendChart(ym,spent,got,inMonth){
+  const[y,m]=ym.split("-").map(Number);const ms=[];
+  for(let i=5;i>=0;i--){const d=new Date(y,m-1-i,1),k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");const l=inMonth(k);ms.push({k,s:spent(l),g:got(l),lbl:d.toLocaleString("en-US",{month:"short"})})}
+  const max=Math.max(1,...ms.map(x=>Math.max(x.s,x.g))),W=640,H=200,pad=30,bw=(W-pad*2)/6;
+  const bars=ms.map((x,i)=>{const x0=pad+i*bw+bw*.18,w=bw*.3,hs=x.s/max*(H-40),hg=x.g/max*(H-40);
+    return`<rect x="${x0}" y="${H-20-hs}" width="${w}" height="${hs}" rx="3" fill="#D62728"><title>${x.lbl} spent ${money(x.s)}</title></rect>
+      <rect x="${x0+w+3}" y="${H-20-hg}" width="${w}" height="${hg}" rx="3" fill="#2E5B47"><title>${x.lbl} money in ${money(x.g)}</title></rect>
+      <text x="${x0+w}" y="${H-4}" text-anchor="middle" font-size="12" fill="#5E6B63" ${x.k===ym?'font-weight="700"':""}>${x.lbl}</text>`}).join("");
+  return`<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;min-width:420px" role="img" aria-label="Spending and money in, last 6 months">
+    <line x1="${pad}" x2="${W-pad}" y1="${H-20}" y2="${H-20}" stroke="#DCE3DE"/>${bars}</svg></div>
+    <div class="chart-key"><span style="--c:#D62728">Spent</span><span style="--c:#2E5B47">Money in</span></div>`}
+/* ---------- categories ---------- */
+function renderCategories(){
+  const m=document.getElementById("main");
+  const used={};S.txns.forEach(t=>used[t.cat]=(used[t.cat]||0)+1);
+  m.innerHTML=`<div class="head"><div><h1>Categories</h1><p class="sub">Renaming a category updates every transaction that uses it.</p></div></div>
+  <div class="panel pad" style="max-width:640px">
+    <div class="cat-edit"><input id="newCat" placeholder="New category name"><select id="newKind"><option value="spend">Spending</option><option value="income">Money in</option><option value="transfer">Transfer</option></select><button class="primary" id="addCat">Add</button></div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:.8rem 0">
+    ${S.categories.map((c,i)=>`<div class="cat-edit"><input data-n="${i}" value="${esc(c.name)}"><select data-kd="${i}"><option value="spend">Spending</option><option value="income">Money in</option><option value="transfer">Transfer</option></select>
+      <button class="danger" data-del="${i}" title="${used[c.name]||0} transactions use this">Remove</button></div>`).join("")}
+  </div>`;
+  S.categories.forEach((c,i)=>document.querySelector(`[data-kd="${i}"]`).value=c.kind);
+  document.getElementById("addCat").onclick=()=>{const n=document.getElementById("newCat").value.trim();if(!n)return;
+    if(S.categories.some(c=>c.name.toLowerCase()===n.toLowerCase())){toast("That category already exists.");return}
+    S.categories.push({name:n,kind:document.getElementById("newKind").value});markDirty();renderCategories();toast("Category added")};
+  document.querySelectorAll("[data-n]").forEach(inp=>inp.onchange=()=>{const c=S.categories[+inp.dataset.n],old=c.name,nw=inp.value.trim();
+    if(!nw||S.categories.some(x=>x!==c&&x.name.toLowerCase()===nw.toLowerCase())){inp.value=old;toast("Use a different name.");return}
+    c.name=nw;S.txns.forEach(t=>{if(t.cat===old)t.cat=nw});for(const k in S.payeeMap)if(S.payeeMap[k]===old)S.payeeMap[k]=nw;markDirty();toast("Renamed")});
+  document.querySelectorAll("[data-kd]").forEach(s=>s.onchange=()=>{S.categories[+s.dataset.kd].kind=s.value;markDirty()});
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{const c=S.categories[+b.dataset.del],n=used[c.name]||0;
+    if(n&&!confirm(`${n} transactions use "${c.name}". They'll become uncategorized. Remove it?`))return;
+    S.txns.forEach(t=>{if(t.cat===c.name)t.cat=""});S.categories.splice(+b.dataset.del,1);markDirty();renderCategories()});
+}
+
+/* ---------- data ---------- */
+function renderData(){
+  const m=document.getElementById("main");
+  if(DESK){renderDataDesk(m);return}
+  m.innerHTML=`<div class="head"><div><h1>Save and backup</h1><p class="sub">Homebook never sends your information anywhere. Everything lives in a file you control.</p></div></div>
+  <div class="grid2">
+  <div class="panel pad">
+    <h2>Your Homebook file</h2>
+    <p>${fileHandle?"Connected to a file on your computer. Changes save to it automatically.":canFS?"Pick a place on your computer to keep your Homebook file. After that, changes save automatically.":"Your browser saves by downloading a copy. Download a fresh copy after each session."}</p>
+    <p class="note">${lastSaved?"Last saved "+lastSaved.toLocaleString():"Not saved to a file during this session."}</p>
+    <div class="toolbar"><button class="primary" id="dSave">Save to file</button><button id="dOpen">Open a Homebook file</button><button id="dCopy">Download a backup copy</button></div>
+    <p class="warn">Keep a backup somewhere other than this computer, like a USB drive or cloud folder. If this computer fails, the backup is the only copy.</p>
+  </div>
+  <div class="panel pad">
+    <h2>Export</h2><p class="note">Download every transaction as a spreadsheet file that opens in Excel.</p>
+    <button id="dCsv">Export to spreadsheet (CSV)</button>
+    <h2 style="margin-top:1.6rem">Start over</h2><p class="note">Erases everything in this browser. Your saved files are not touched.</p>
+    <button class="danger" id="dReset">Erase and start over</button>
+  </div></div>`;
+  document.getElementById("dSave").onclick=()=>saveToFile();
+  document.getElementById("dOpen").onclick=openFile;
+  document.getElementById("dCopy").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:"application/json"}));a.download="Homebook backup "+today()+".json";a.click()};
+  document.getElementById("dCsv").onclick=()=>{const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+    const lines=[["Account","Date","Check #","Payee","Category","Memo","Amount","Status"].join(",")].concat(sorted(S.txns).map(t=>[q(S.accounts.find(a=>a.id===t.acct)?.name),t.date,q(t.num),q(t.payee),q(t.cat),q(t.memo),(t.amt/100).toFixed(2),t.status==="r"?"Reconciled":t.status==="c"?"Cleared":""].join(",")));
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([lines.join("\r\n")],{type:"text/csv"}));a.download="Homebook transactions "+today()+".csv";a.click()};
+  document.getElementById("dReset").onclick=()=>{if(!confirm("Erase all accounts and transactions from this browser?"))return;S=blank();fileHandle=null;curAcct=null;persistLocal();dirty=false;view="register";render()};
+}
+
+function renderDataDesk(m){
+  m.innerHTML=`<div class="head"><div><h1>Save and backup</h1><p class="sub">Homebook never sends your information anywhere.</p></div></div>
+  <div class="grid2">
+  <div class="panel pad">
+    <h2>Where your data lives</h2>
+    <p>Every change saves automatically to:</p><p class="note" style="word-break:break-all"><b>${esc(deskPath)}</b></p>
+    <p>Homebook also keeps a backup copy for each day you use it, the last 30 days, in the Backups folder inside it.</p>
+    <p class="note">${lastSaved?"Last saved "+lastSaved.toLocaleString():"No changes yet this session."}</p>
+    <div class="toolbar"><button class="primary" id="dFolder">Show my Homebook folder</button><button id="dRestore">Restore from a backup</button><button id="dCopy">Save a copy somewhere else</button></div>
+    <p class="warn">Copy your Homebook folder to a USB drive or cloud folder now and then. If this computer fails, that copy is the only one.</p>
+  </div>
+  <div class="panel pad">
+    <h2>Export</h2><p class="note">Download every transaction as a spreadsheet file that opens in Excel.</p>
+    <button id="dCsv">Export to spreadsheet (CSV)</button>
+  </div></div>`;
+  document.getElementById("dFolder").onclick=()=>DESK.openFolder();
+  document.getElementById("dRestore").onclick=async()=>{if(!confirm("Restoring replaces what's in Homebook now with the backup you choose. Today's backup is kept. Continue?"))return;
+    const t=await DESK.restore();if(t){loadData(t);deskSave()}};
+  document.getElementById("dCopy").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:"application/json"}));a.download="Homebook copy "+today()+".json";a.click()};
+  document.getElementById("dCsv").onclick=exportCSV;
+}
+function exportCSV(){const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+  const lines=[["Account","Date","Check #","Payee","Category","Memo","Amount","Status"].join(",")].concat(sorted(S.txns).map(t=>[q(S.accounts.find(a=>a.id===t.acct)?.name),t.date,q(t.num),q(t.payee),q(t.cat),q(t.memo),(t.amt/100).toFixed(2),t.status==="r"?"Reconciled":t.status==="c"?"Cleared":""].join(",")));
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([lines.join("\r\n")],{type:"text/csv"}));a.download="Homebook transactions "+today()+".csv";a.click()}
+/* ---------- boot ---------- */
+function render(){renderSide();renderSaveState();
+  ({register:renderRegister,recurring:renderRecurring,reports:renderReports,categories:renderCategories,data:renderData})[view]()}
+(async()=>{
+  if(DESK){deskPath=await DESK.where();let t=null;try{t=await DESK.load()}catch(e){}
+    try{const d=t&&JSON.parse(t);S=d&&d.app==="homebook"?d:blank()}catch(e){S=blank();toast("Your Homebook file couldn't be read. Use Restore from a backup.")}
+    S.payeeMap=S.payeeMap||{};}
+  else S=loadLocal()||blank();
+  S.recurring=S.recurring||[];
+  const changed=ensureCats(),auto=runAutoRecurring();
+  if(changed||auto){if(DESK)deskSave();else persistLocal()}
+  if(auto)setTimeout(()=>toast(`Entered ${auto} scheduled ${auto===1?"payment":"payments"}`),400);
+  curAcct=S.accounts[0]?.id||null;render();})();
+</script>
+</body>
+</html>
