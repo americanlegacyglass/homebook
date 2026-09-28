@@ -41,6 +41,11 @@ ipcMain.handle("hb:save", (_e, text) => {
   return { ok: true, at: Date.now() };
 });
 ipcMain.handle("hb:where", () => dataDir());
+// Windows focus fix: after a pop-up closes, hand keyboard focus back to the app screen.
+ipcMain.handle("hb:refocus", e => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w) { w.blur(); w.focus(); w.webContents.focus(); }
+});
 ipcMain.handle("hb:openFolder", () => shell.openPath(dataDir()));
 ipcMain.handle("hb:restore", async () => {
   const r = await dialog.showOpenDialog({ title: "Choose a Homebook file or backup", defaultPath: backupDir(),
@@ -68,6 +73,8 @@ function createWindow() {
   });
   // Never open web pages or navigate away from the app.
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // Keep typing working whenever the window is focused (fixes lost keyboard focus on Windows).
+  win.on("focus", () => win.webContents.focus());
   win.webContents.on("will-navigate", e => e.preventDefault());
 }
 
@@ -116,11 +123,13 @@ autoUpdater.on("update-not-available", () => {
 });
 autoUpdater.on("update-downloaded", async info => {
   updateBusy = false;
-  const r = await dialog.showMessageBox({
+  const w = BrowserWindow.getAllWindows()[0];
+  const r = await dialog.showMessageBox(w, {
     type: "info", buttons: ["Restart now", "Later"], defaultId: 0, cancelId: 1,
     message: `Homebook ${info.version} is ready`,
     detail: "Restart to finish updating. Your money records are not affected. If you choose Later, the update installs the next time you close Homebook."
   });
   if (r.response === 0) autoUpdater.quitAndInstall();
+  else if (w) { w.focus(); w.webContents.focus(); }
 });
 autoUpdater.on("error", err => { updateBusy = false; console.error("Update error:", err); });
