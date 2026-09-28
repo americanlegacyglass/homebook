@@ -129,7 +129,7 @@ autoUpdater.on("update-downloaded", async info => {
     message: `Homebook ${info.version} is ready`,
     detail: "Restart to finish updating. Your money records are not affected. If you choose Later, the update installs the next time you close Homebook."
   });
-  if (r.response === 0) autoUpdater.quitAndInstall();
+  if (r.response === 0) autoUpdater.quitAndInstall(true, true); // silent install, then reopen Homebook
   else if (w) { w.focus(); w.webContents.focus(); }
 });
 autoUpdater.on("error", err => { updateBusy = false; console.error("Update error:", err); });
