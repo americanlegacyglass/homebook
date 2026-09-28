@@ -187,7 +187,12 @@ const acctOf=id=>S.accounts.find(a=>a.id===id);
 function ensureCats(){if((S.catsVersion||1)>=4)return false;let added=false;
   for(const[name,kind]of DEFAULT_CATS)if(!S.categories.some(c=>c.name.toLowerCase()===name.toLowerCase())){S.categories.push({name,kind});added=true}
   S.catsVersion=4;return true}
-const DESK=window.homebookDesktop||null;let deskPath="",saveChain=Promise.resolve();
+const DESK=window.homebookDesktop||null;
+if(DESK&&DESK.refocus){ // Windows: restore typing after yes/no pop-ups
+  const nativeConfirm=window.confirm.bind(window),nativeAlert=window.alert.bind(window);
+  window.confirm=m=>{const r=nativeConfirm(m);DESK.refocus();return r};
+  window.alert=m=>{nativeAlert(m);DESK.refocus()};
+}let deskPath="",saveChain=Promise.resolve();
 let S=null, view="register", curAcct=null, fileHandle=null, dirty=false, lastSaved=null, filterMonth="", search="";
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 function blank(){return{app:"homebook",version:1,catsVersion:4,recurring:[],accounts:[],categories:DEFAULT_CATS.map(([name,kind])=>({name,kind})),txns:[],payeeMap:{}}}
@@ -272,6 +277,22 @@ document.querySelectorAll(".nav a").forEach(a=>a.onclick=()=>{view=a.dataset.vie
 document.getElementById("addAcctBtn").onclick=()=>accountDialog();
 
 /* ---------- register ---------- */
+function catInput(attrs,val){return`<input ${attrs} class="catin" list="catlist" value="${esc(val||"")}" placeholder="Type to search" autocomplete="off" spellcheck="false">`}
+function resolveCat(v){v=String(v||"").trim().toLowerCase();if(!v)return"";const names=S.categories.map(c=>c.name);
+  const exact=names.find(n=>n.toLowerCase()===v);if(exact)return exact;
+  const starts=names.filter(n=>n.toLowerCase().startsWith(v));if(starts.length===1)return starts[0];
+  const has=names.filter(n=>n.toLowerCase().includes(v));if(has.length===1)return has[0];return null}
+function catMatches(v){v=String(v||"").trim().toLowerCase();return S.categories.filter(c=>c.name.toLowerCase().includes(v)).length}
+function fixCat(el){const r=resolveCat(el.value);if(r!==null){el.value=r;return true}
+  const name=el.value.trim();
+  if(catMatches(name)>1){toast(`Several categories match "${name}". Pick one from the list.`);return false}
+  if(confirm(`"${name}" isn't a category yet. Add it as a new spending category?`)){S.categories.push({name,kind:"spend"});refreshCatList();markDirty();el.value=name;return true}
+  el.value="";return false}
+function readCat(el){const r=resolveCat(el.value);if(r===null){el.focus();toast("Pick a category from the list, or leave it blank.");return null}el.value=r;return r}
+function refreshCatList(){let dl=document.getElementById("catlist");if(!dl){dl=document.createElement("datalist");dl.id="catlist";document.body.appendChild(dl)}
+  dl.innerHTML=S.categories.map(c=>`<option value="${esc(c.name)}">`).join("")}
+document.addEventListener("change",e=>{if(e.target.classList&&e.target.classList.contains("catin"))fixCat(e.target)},true);
+document.addEventListener("focusin",e=>{if(e.target.classList&&e.target.classList.contains("catin"))e.target.select()});
 function catOptions(sel){return`<option value="">Choose category</option>`+S.categories.map(c=>`<option ${c.name===sel?"selected":""}>${esc(c.name)}</option>`).join("")}
 function renderRegister(){
   const m=document.getElementById("main");
@@ -299,7 +320,7 @@ function renderRegister(){
     <select id="fm"><option value="">All months</option>${months.map(x=>`<option value="${x}" ${x===filterMonth?"selected":""}>${monthName(x)}</option>`).join("")}</select>
     <span class="grow"></span>
     <button id="xferBtn">Transfer money</button>
-    ${isInv(a)?`<button class="primary" id="valBtn">Update value</button>`:`<button id="impBtn">Import bank statement</button><button id="recBtn">Balance with statement</button>`}
+    ${isInv(a)?`<button id="impBtn">Import statement</button><button class="primary" id="valBtn">Update value</button>`:`<button id="impBtn">Import bank statement</button><button id="recBtn">Balance with statement</button>`}
   </div>
   <div class="panel" style="overflow:auto">
   <table class="${isInv(a)?"inv":""}">
@@ -310,7 +331,7 @@ function renderRegister(){
         <td><input type="date" id="nDate" value="${today()}"></td>
         <td class="ck"><input id="nNum" inputmode="numeric"></td>
         <td><input id="nPayee" placeholder="Who was it paid to or from?" list="payees"><input id="nMemo" placeholder="Memo (optional)" style="margin-top:.3rem;font-size:.9rem"></td>
-        <td><select id="nCat">${catOptions("")}</select></td>
+        <td>${catInput('id="nCat"',"")}</td>
         <td><input id="nOut" class="num" inputmode="decimal" placeholder="0.00"></td>
         <td><input id="nIn" class="num" inputmode="decimal" placeholder="0.00"></td>
         <td colspan="2"><button class="primary" id="nAdd" style="width:100%">Add</button></td>
@@ -343,11 +364,12 @@ function renderRegister(){
     if(!payee){toast("Enter who it was paid to or from.");$("nPayee").focus();return}
     if(!out&&!inn){toast("Enter a payment or a deposit amount.");$("nOut").focus();return}
     if(out&&inn){toast("Use either Payment or Deposit, not both.");return}
-    const t={id:uid(),seq:nextSeq(),acct:a.id,date:$("nDate").value||today(),num:$("nNum").value.trim(),payee,memo:$("nMemo").value.trim(),cat:$("nCat").value,amt:inn?Math.abs(inn):-Math.abs(out),status:""};
-    S.txns.push(t);learnPayee(payee,t.cat);markDirty();render();toast("Added");document.getElementById("nPayee").focus();
+    const cat=readCat($("nCat"));if(cat===null)return;
+    const t={id:uid(),seq:nextSeq(),acct:a.id,date:$("nDate").value||today(),num:$("nNum").value.trim(),payee,memo:$("nMemo").value.trim(),cat,amt:inn?Math.abs(inn):-Math.abs(out),status:""};
+    S.txns.push(t);learnPayee(payee,t.cat);markDirty();render();toast("Added");document.getElementById("nPayee").focus();offerLink(t);
   };
   $("nAdd").onclick=add;
-  document.querySelectorAll("tr.newrow input").forEach(i=>i.onkeydown=e=>{if(e.key==="Enter")add()});
+  document.querySelectorAll("tr.newrow input:not(.catin)").forEach(i=>i.onkeydown=e=>{if(e.key==="Enter")add()});
   document.querySelectorAll("[data-clr]").forEach(b=>b.onclick=e=>{e.stopPropagation();const t=S.txns.find(x=>x.id===b.dataset.clr);
     if(t.status==="r"){toast("Reconciled items are locked. Edit the row to change it.");return}
     t.status=t.status?"":"c";markDirty();render()});
@@ -385,19 +407,23 @@ function txDialog(t){
     <label>Date<input type="date" id="eDate" value="${t.date}"></label>
     <label>Check #<input id="eNum" value="${esc(t.num||"")}"></label>
     <label class="full">Payee<input id="ePayee" value="${esc(t.payee)}"></label>
-    <label>Category<select id="eCat">${catOptions(t.cat)}</select></label>
+    <label>Category${catInput('id="eCat"',t.cat)}</label>
     <label>Account<select id="eAcct">${S.accounts.map(a=>`<option value="${a.id}" ${a.id===t.acct?"selected":""}>${esc(a.name)}</option>`).join("")}</select></label>
     <label>Type<select id="eDir"><option value="out">Payment</option><option value="in">Deposit</option></select></label>
     <label>Amount<input id="eAmt" class="num" inputmode="decimal" value="${(Math.abs(t.amt)/100).toFixed(2)}"></label>
     <label class="full">Memo<input id="eMemo" value="${esc(t.memo||"")}"></label>
     <label>Status<select id="eSt"><option value="">Not cleared</option><option value="c">Cleared</option><option value="r">Reconciled</option></select></label>
-  </div>${t.status==="r"?`<p class="warn" style="margin-top:1rem">This was part of a finished reconciliation. Changing the amount will throw off your balance with the bank.</p>`:""}</div>
+  </div>${t.xfer?`<p class="note" style="margin-top:1rem">This is a transfer. Changing the amount or date updates the matching entry in the other account.</p>`:""}${t.status==="r"?`<p class="warn" style="margin-top:1rem">This was part of a finished reconciliation. Changing the amount will throw off your balance with the bank.</p>`:""}</div>
   <div class="dlg-f"><button class="danger" id="eDel">Delete</button><button id="eRep">Make this repeat</button><span class="grow"></span><button data-close>Cancel</button><button class="primary" id="eSave">Save</button></div>`);
   const $=id=>document.getElementById(id);$("eDir").value=t.amt<0?"out":"in";$("eSt").value=t.status||"";
   $("eSave").onclick=()=>{const amt=Math.abs(toCents($("eAmt").value));if(!amt){toast("Enter an amount.");return}
-    Object.assign(t,{date:$("eDate").value||t.date,num:$("eNum").value.trim(),payee:$("ePayee").value.trim(),cat:$("eCat").value,acct:$("eAcct").value,
+    const cat=readCat($("eCat"));if(cat===null)return;
+    Object.assign(t,{date:$("eDate").value||t.date,num:$("eNum").value.trim(),payee:$("ePayee").value.trim(),cat,acct:$("eAcct").value,
       amt:$("eDir").value==="out"?-amt:amt,memo:$("eMemo").value.trim(),status:$("eSt").value});
-    learnPayee(t.payee,t.cat);dlg.close();markDirty();render();toast("Saved")};
+    learnPayee(t.payee,t.cat);
+    const partner=t.xfer&&S.txns.find(x=>x.xfer===t.xfer&&x.id!==t.id);
+    if(partner){partner.amt=-t.amt;partner.date=t.date;if(partner.acct===t.acct){delete partner.xfer;delete t.xfer}}
+    dlg.close();markDirty();render();toast(partner?"Saved in both accounts":"Saved");if(!partner)offerLink(t)};
   $("eRep").onclick=()=>{const d=new Date(t.date+"T12:00");d.setMonth(d.getMonth()+1);
     recurringDialog(null,{payee:t.payee,cat:t.cat,amt:t.amt,acct:t.acct,freq:"monthly",next:d.toISOString().slice(0,10),memo:t.memo})};
   $("eDel").onclick=()=>{if(!confirm(t.xfer?"Delete this transfer? The matching entry in the other account is deleted too.":"Delete this transaction?"))return;S.txns=S.txns.filter(x=>x.id!==t.id&&!(t.xfer&&x.xfer===t.xfer));dlg.close();markDirty();render();toast("Deleted")};
@@ -412,7 +438,8 @@ function addDays(iso,n){const d=new Date(iso+"T12:00");d.setDate(d.getDate()+n);
 function advance(r){const day=r.day||+r.next.slice(8);
   r.next=r.freq==="weekly"?addDays(r.next,7):r.freq==="biweekly"?addDays(r.next,14):addMonths(r.next,r.freq==="quarterly"?3:r.freq==="yearly"?12:1,day)}
 function enterRecurring(r){if(!r)return;if(!S.accounts.some(a=>a.id===r.acct)){toast("That payment's account no longer exists. Edit it first.");return}
-  S.txns.push({id:uid(),seq:nextSeq(),acct:r.acct,date:r.next,num:"",payee:r.payee,memo:r.memo||"",cat:r.cat||"",amt:r.amt,status:"",recId:r.id});
+  const t={id:uid(),seq:nextSeq(),acct:r.acct,date:r.next,num:"",payee:r.payee,memo:r.memo||"",cat:r.cat||"",amt:r.amt,status:"",recId:r.id};S.txns.push(t);
+  if(r.toAcct&&r.toAcct!==r.acct&&acctOf(r.toAcct))S.txns.push(makePartner(t,r.toAcct));
   learnPayee(r.payee,r.cat);advance(r)}
 function runAutoRecurring(){let n=0;const t=today();
   for(const r of S.recurring||[]){let guard=0;while(r.auto&&r.next<=t&&guard++<60){enterRecurring(r);n++}}return n}
@@ -462,21 +489,25 @@ function recurringDialog(r,preset){
     <label class="full">Name or payee<input id="pPayee" value="${esc(v.payee)}" placeholder="Netflix, APS Electric, Rent" list="payees2"></label>
     <label>Type<select id="pDir"><option value="out">Payment</option><option value="in">Money in</option></select></label>
     <label>Amount<input id="pAmt" class="num" inputmode="decimal" value="${v.amt?(Math.abs(v.amt)/100).toFixed(2):""}" placeholder="0.00"></label>
-    <label>Category<select id="pCat">${catOptions(v.cat)}</select></label>
+    <label>Category${catInput('id="pCat"',v.cat)}</label>
     <label>Account<select id="pAcct">${S.accounts.map(a=>`<option value="${a.id}" ${a.id===v.acct?"selected":""}>${esc(a.name)}</option>`).join("")}</select></label>
     <label>How often<select id="pFreq">${Object.entries(FREQS).map(([k,l])=>`<option value="${k}" ${k===v.freq?"selected":""}>${l}</option>`).join("")}</select></label>
     <label>Next date<input type="date" id="pNext" value="${v.next}"></label>
     <label class="full">Memo<input id="pMemo" value="${esc(v.memo||"")}"></label>
+    <label class="full">For transfers: also record in<select id="pTo"><option value="">No other account</option>${S.accounts.map(a=>`<option value="${a.id}" ${a.id===v.toAcct?"selected":""}>${esc(a.name)}</option>`).join("")}</select></label>
     <label class="full">When it's due<select id="pAuto"><option value="0">Remind me, and I'll click Enter</option><option value="1">Enter it in the register automatically</option></select></label>
     <p class="note full" style="grid-column:1/-1;margin:0">Automatic works well for fixed amounts like rent or a streaming service. For bills that change every month, like electric, use Remind me so you can type the real amount.</p>
   </div><datalist id="payees2">${[...new Set(S.txns.map(t=>t.payee))].slice(0,400).map(p=>`<option value="${esc(p)}">`).join("")}</datalist></div>
   <div class="dlg-f">${isNew?"":`<button class="danger" id="pDel">Delete</button>`}<span class="grow"></span><button data-close>Cancel</button><button class="primary" id="pSave">${isNew?"Add":"Save"}</button></div>`);
   const $=id=>document.getElementById(id);$("pDir").value=v.amt>0?"in":"out";$("pAuto").value=v.auto?"1":"0";
-  $("pPayee").onchange=()=>{const g=guessCat($("pPayee").value);if(g&&!$("pCat").value)$("pCat").value=g};
+  const autoTo=()=>{const c=resolveCat($("pCat").value);if(c&&catKind(c)==="transfer"&&!$("pTo").value){const g=guessTarget({acct:$("pAcct").value,cat:c});if(g)$("pTo").value=g.id}};
+  $("pPayee").onchange=()=>{const g=guessCat($("pPayee").value);if(g&&!$("pCat").value)$("pCat").value=g;autoTo()};
+  $("pCat").addEventListener("change",autoTo);
   $("pSave").onclick=()=>{const payee=$("pPayee").value.trim(),amt=Math.abs(toCents($("pAmt").value));
-    if(!payee){toast("Enter a name.");return}if(!amt){toast("Enter an amount.");return}if(!$("pNext").value){toast("Pick the next date.");return}
-    const data={payee,amt:$("pDir").value==="out"?-amt:amt,cat:$("pCat").value,acct:$("pAcct").value,freq:$("pFreq").value,next:$("pNext").value,
-      day:+$("pNext").value.slice(8),auto:$("pAuto").value==="1",memo:$("pMemo").value.trim()};
+    if(!payee){toast("Enter a name.");return}if(!amt){toast("Enter an amount.");return}
+    const pc=readCat($("pCat"));if(pc===null)return;if(!$("pNext").value){toast("Pick the next date.");return}
+    const data={payee,amt:$("pDir").value==="out"?-amt:amt,cat:pc,acct:$("pAcct").value,freq:$("pFreq").value,next:$("pNext").value,
+      day:+$("pNext").value.slice(8),auto:$("pAuto").value==="1",memo:$("pMemo").value.trim(),toAcct:($("pTo").value&&$("pTo").value!==$("pAcct").value)?$("pTo").value:""};
     if(isNew)S.recurring.push({id:uid(),...data});else Object.assign(r,data);
     learnPayee(payee,data.cat);
     const n=runAutoRecurring();dlg.close();markDirty();render();toast(n?`Saved. Entered ${n} past-due ${n===1?"payment":"payments"}.`:"Saved")};
@@ -485,6 +516,31 @@ function recurringDialog(r,preset){
 }
 
 /* ---------- investments and transfers ---------- */
+function linkCats(A,B){ // categories for money moving from account A to account B
+  const out=isInv(B)?"Investment contribution":B.type==="savings"?"Transfer to savings":B.type==="credit"?"Credit card payment":"Transfer";
+  const inn=isInv(A)?"Investment withdrawal":A.type==="savings"?"Transfer from savings":isInv(B)?"Investment contribution":"Transfer";
+  return[out,inn]}
+function guessTarget(t){const others=S.accounts.filter(a=>a.id!==t.acct);if(!others.length)return null;const c=(t.cat||"").toLowerCase();
+  const pick=f=>others.find(f);
+  if(/invest|retire/.test(c))return pick(isInv)||others[0];
+  if(/saving/.test(c))return pick(a=>a.type==="savings")||others[0];
+  if(/credit card/.test(c))return pick(a=>a.type==="credit")||others[0];
+  return others[0]}
+function makePartner(t,toId,xid){const A=acctOf(t.acct),B=acctOf(toId);
+  const[outCat,inCat]=t.amt<0?linkCats(A,B):linkCats(B,A);
+  const x=xid||uid();t.xfer=x;
+  return{id:uid(),seq:nextSeq(),acct:toId,date:t.date,num:"",payee:(t.amt<0?"Transfer from ":"Transfer to ")+A.name,memo:t.memo||"",cat:t.amt<0?inCat:outCat,amt:-t.amt,status:"",xfer:x}}
+function offerLink(t){
+  if(t.xfer||catKind(t.cat)!=="transfer")return;
+  const others=S.accounts.filter(a=>a.id!==t.acct);
+  if(!others.length){toast("Tip: add your savings or investment account and transfers will show up there too.");return}
+  const g=guessTarget(t),dir=t.amt<0?"to":"from";
+  openDlg(`<div class="dlg-h"><h2>Record in the other account too?</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b"><p style="margin-top:0">${money(Math.abs(t.amt))} moved ${dir} another account. Homebook can add the matching entry there so both balances stay right.</p>
+  <div class="form"><label class="full">Money went ${dir}<select id="lTo">${others.map(a=>`<option value="${a.id}" ${a.id===g?.id?"selected":""}>${esc(a.name)} (${ACCT_TYPES[a.type]||""})</option>`).join("")}</select></label></div></div>
+  <div class="dlg-f"><button data-close>Just this account</button><span class="grow"></span><button class="primary" id="lGo">Record in both</button></div>`);
+  document.getElementById("lGo").onclick=()=>{const p=makePartner(t,document.getElementById("lTo").value);S.txns.push(p);
+    dlg.close();markDirty();render();toast(`Also added to ${acctOf(p.acct).name}`)}}
 function invStats(a){const y=today().slice(0,4),tx=acctTx(a.id).filter(t=>t.date.startsWith(y));
   const contrib=tx.filter(t=>t.amt>0&&t.cat!=="Market change"&&t.cat!=="Dividends and interest").reduce((s,t)=>s+t.amt,0);
   const growth=tx.filter(t=>t.cat==="Market change"||t.cat==="Dividends and interest").reduce((s,t)=>s+t.amt,0);
@@ -570,6 +626,19 @@ function parseOFX(txt){const out=[];const re=/<STMTTRN>([\s\S]*?)(?:<\/STMTTRN>|
   while(m=re.exec(txt)){const b=m[1];const name=tag(b,"NAME")||tag(b,"PAYEE")||tag(b,"MEMO");
     out.push({date:parseDate(tag(b,"DTPOSTED")),amt:toCents(tag(b,"TRNAMT")),payee:decodeEnt(name),memo:tag(b,"NAME")?decodeEnt(tag(b,"MEMO")):"",num:tag(b,"CHECKNUM"),fitid:tag(b,"FITID")})}
   return out}
+function parseOFXInvest(txt){ // investment statements: cash in/out, dividends, and total value
+  const tag=(b,n)=>{const r=b.match(new RegExp("<"+n+">([^<\\r\\n]*)","i"));return r?r[1].trim():""};
+  const items=parseOFX(txt).map(it=>({...it,payee:it.payee||(it.amt>0?"Contribution":"Withdrawal")}));
+  const inc=[],re=/<(INCOME|REINVEST)>([\s\S]*?)<\/\1>/gi;let m;
+  while(m=re.exec(txt)){const b=m[2],amt=Math.abs(toCents(tag(b,"TOTAL")));if(!amt)continue;
+    const date=parseDate(tag(b,"DTSETTLE")||tag(b,"DTTRADE"));const type=(tag(b,"INCOMETYPE")||"DIV").toUpperCase();
+    inc.push({kind:m[1].toUpperCase(),date,amt,fitid:tag(b,"FITID"),payee:type==="INTEREST"?"Interest":type.startsWith("CG")?"Capital gains distribution":"Dividend",
+      memo:decodeEnt(tag(b,"MEMO")),num:"",cat:"Dividends and interest"})}
+  for(const x of inc){if(x.kind==="REINVEST"&&inc.some(y=>y.kind==="INCOME"&&y.date===x.date&&y.amt===x.amt))continue;items.push(x)}
+  const mk=[...txt.matchAll(/<MKTVAL>([^<\r\n]*)/gi)].map(r=>toCents(r[1]));
+  const cash=toCents((txt.match(/<AVAILCASH>([^<\r\n]*)/i)||[])[1]||"0");
+  const asof=parseDate(((txt.match(/<INVSTMTRS>[\s\S]*?<DTASOF>([^<\r\n]*)/i)||[])[1])||"")||today();
+  return{items,value:mk.length?mk.reduce((a,b)=>a+b,0)+cash:null,asof}}
 function decodeEnt(s){return s.replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&apos;/g,"'").replace(/&quot;/g,'"')}
 function parseQIF(txt){const out=[];let cur={};
   for(const raw of txt.split(/\r?\n/)){const line=raw.trimEnd();if(!line||line.startsWith("!"))continue;const k=line[0],v=line.slice(1).trim();
@@ -586,7 +655,9 @@ function parseCSV(txt){const rows=[];let row=[],f="",q=false;
 let IMP=null;
 document.getElementById("fileImport").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;
   const txt=await f.text(),name=f.name.toLowerCase();let items;
+  if(/<INVSTMTRS>/i.test(txt)){const r=parseOFXInvest(txt);if(!r.items.length&&r.value==null){toast("No transactions found in that file.");return}reviewImport(r.items,f.name,r);return}
   if(name.endsWith(".ofx")||name.endsWith(".qfx")||/<OFX>/i.test(txt))items=parseOFX(txt);
+  else if(/^!Type:Invst/im.test(txt)){toast("Investment QIF files aren't supported. Download the OFX, QFX or CSV version instead.");return}
   else if(name.endsWith(".qif")||/^!Type:/im.test(txt))items=parseQIF(txt);
   else{const rows=parseCSV(txt);if(rows.length<2){toast("That file doesn't have any rows.");return}csvMapDialog(rows,f.name);return}
   if(!items.length){toast("No transactions found in that file.");return}
@@ -618,22 +689,26 @@ function csvMapDialog(rows,fname){
     if(!items.length){toast("Couldn't read any transactions with those columns.");return}
     reviewImport(items,fname)};
 }
-function reviewImport(items,fname){
+function reviewImport(items,fname,meta){
   if(!S.accounts.length){toast("Add an account first.");accountDialog();return}
   const existing=S.txns;
   items=items.map((it,i)=>{const dup=existing.some(t=>(it.fitid&&t.fitid===it.fitid)||(t.acct===curAcct&&t.date===it.date&&t.amt===it.amt&&t.payee.toLowerCase()===it.payee.toLowerCase())
       ||(t.acct===curAcct&&!t.fitid&&t.amt===it.amt&&Math.abs(new Date(t.date)-new Date(it.date))<=3*864e5));
-    const known=S.categories.some(c=>c.name===it.cat);return{...it,i,dup,keep:!dup,cat:known?it.cat:guessCat(it.payee)}});
+    const known=S.categories.some(c=>c.name===it.cat);let cat=known?it.cat:guessCat(it.payee);
+    if(!cat&&isInv(acctOf(curAcct)))cat=it.amt>0?"Investment contribution":"Investment withdrawal";
+    return{...it,i,dup,keep:!dup,cat}});
   IMP=items;const nd=items.filter(x=>x.dup).length;
   openDlg(`<div class="dlg-h"><h2>Review import</h2><button class="x" data-close aria-label="Close">×</button></div>
   <div class="dlg-b">
     <div class="form" style="margin-bottom:.8rem"><label>Add to account<select id="iAcct">${S.accounts.map(a=>`<option value="${a.id}" ${a.id===curAcct?"selected":""}>${esc(a.name)}</option>`).join("")}</select></label>
     <label>Mark imported items as<select id="iSt"><option value="c">Cleared (they came from the bank)</option><option value="">Not cleared</option></select></label></div>
+    ${meta&&meta.value!=null?`<label style="display:flex;gap:.5rem;align-items:center;margin-bottom:.6rem"><input type="checkbox" id="iVal" checked>
+      Also update the account's value to <b>${money(meta.value)}</b>, the total shown on this statement (${fmtDate(meta.asof)})</label>`:""}
     <p class="note">${items.length} transactions found in ${esc(fname)}.${nd?` <b>${nd} look like ones you already have</b> and are unchecked.`:""} Categories were filled in from payees you've used before.</p>
     <table><thead><tr><th style="width:40px"></th><th>Date</th><th>Payee</th><th style="width:190px">Category</th><th class="num">Amount</th></tr></thead>
     <tbody>${items.map(it=>`<tr class="${it.dup?"dup":""}"><td><input type="checkbox" data-k="${it.i}" ${it.keep?"checked":""} aria-label="Import"></td>
       <td>${fmtDate(it.date)}</td><td>${esc(it.payee)}${it.dup?`<span class="tag">Already added</span>`:""}</td>
-      <td><select data-c="${it.i}" style="width:100%">${catOptions(it.cat)}</select></td>
+      <td>${catInput(`data-c="${it.i}" style="width:100%"`,it.cat)}</td>
       <td class="num ${it.amt>0?"in":""}">${money(it.amt)}</td></tr>`).join("")}</tbody></table>
   </div>
   <div class="dlg-f"><span class="grow note" id="iCount"></span><button data-close>Cancel</button><button class="primary" id="iGo">Import</button></div>`,true);
@@ -642,7 +717,11 @@ function reviewImport(items,fname){
   document.querySelectorAll("[data-c]").forEach(s=>s.onchange=()=>{IMP[+s.dataset.c].cat=s.value});
   document.getElementById("iGo").onclick=()=>{const acct=document.getElementById("iAcct").value,st=document.getElementById("iSt").value;let n=0;
     for(const it of IMP.filter(x=>x.keep)){S.txns.push({id:uid(),seq:nextSeq(),acct,date:it.date,num:it.num||"",payee:it.payee,memo:it.memo||"",cat:it.cat||"",amt:it.amt,status:st,fitid:it.fitid||""});learnPayee(it.payee,it.cat);n++}
-    curAcct=acct;view="register";dlg.close();markDirty();render();toast(`Imported ${n} transactions`)};
+    let valMsg="";const vb=document.getElementById("iVal");
+    if(vb&&vb.checked&&isInv(acctOf(acct))){const d=meta.value-balances(acct).bal;
+      if(d){S.txns.push({id:uid(),seq:nextSeq(),acct,date:meta.asof,num:"",payee:"Market value update",memo:"From statement",cat:"Market change",amt:d,status:"c"})}
+      valMsg=` Value set to ${money(meta.value)}.`}
+    curAcct=acct;view="register";dlg.close();markDirty();render();toast(`Imported ${n} transactions.${valMsg}`)};
 }
 
 /* ---------- reports ---------- */
@@ -780,7 +859,7 @@ function exportCSV(){const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
   const lines=[["Account","Date","Check #","Payee","Category","Memo","Amount","Status"].join(",")].concat(sorted(S.txns).map(t=>[q(S.accounts.find(a=>a.id===t.acct)?.name),t.date,q(t.num),q(t.payee),q(t.cat),q(t.memo),(t.amt/100).toFixed(2),t.status==="r"?"Reconciled":t.status==="c"?"Cleared":""].join(",")));
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([lines.join("\r\n")],{type:"text/csv"}));a.download="Homebook transactions "+today()+".csv";a.click()}
 /* ---------- boot ---------- */
-function render(){renderSide();renderSaveState();
+function render(){refreshCatList();renderSide();renderSaveState();
   ({register:renderRegister,recurring:renderRecurring,reports:renderReports,categories:renderCategories,data:renderData})[view]()}
 (async()=>{
   if(DESK){deskPath=await DESK.where();let t=null;try{t=await DESK.load()}catch(e){}
