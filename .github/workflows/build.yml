@@ -25,6 +25,18 @@ jobs:
           node-version: lts/*
       - run: npm install
 
+      - name: Create version tag
+        if: runner.os == 'Windows' && inputs.release
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if git ls-remote --exit-code --tags origin "v$VERSION" >/dev/null; then
+            echo "::error::Version $VERSION was already released. Raise the version in package.json, then run again."
+            exit 1
+          fi
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
       - name: Build Windows installer
         if: runner.os == 'Windows'
         shell: bash
