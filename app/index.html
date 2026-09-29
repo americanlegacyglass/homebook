@@ -187,7 +187,7 @@ const acctOf=id=>S.accounts.find(a=>a.id===id);
 function ensureCats(){if((S.catsVersion||1)>=4)return false;let added=false;
   for(const[name,kind]of DEFAULT_CATS)if(!S.categories.some(c=>c.name.toLowerCase()===name.toLowerCase())){S.categories.push({name,kind});added=true}
   S.catsVersion=4;return true}
-const DESK=window.homebookDesktop||null;
+const DESK=window.homebookDesktop||null;let appVersion="";
 if(DESK&&DESK.refocus){ // Windows: restore typing after yes/no pop-ups
   const nativeConfirm=window.confirm.bind(window),nativeAlert=window.alert.bind(window);
   window.confirm=m=>{const r=nativeConfirm(m);DESK.refocus();return r};
@@ -848,6 +848,8 @@ function renderDataDesk(m){
   <div class="panel pad">
     <h2>Export</h2><p class="note">Download every transaction as a spreadsheet file that opens in Excel.</p>
     <button id="dCsv">Export to spreadsheet (CSV)</button>
+    <h2 style="margin-top:1.6rem">About</h2><p>Homebook version <b>${esc(appVersion||"unknown")}</b></p>
+    <p class="note">Updates install automatically on Windows. To check now, use File, then Check for updates.</p>
   </div></div>`;
   document.getElementById("dFolder").onclick=()=>DESK.openFolder();
   document.getElementById("dRestore").onclick=async()=>{if(!confirm("Restoring replaces what's in Homebook now with the backup you choose. Today's backup is kept. Continue?"))return;
@@ -862,7 +864,7 @@ function exportCSV(){const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
 function render(){refreshCatList();renderSide();renderSaveState();
   ({register:renderRegister,recurring:renderRecurring,reports:renderReports,categories:renderCategories,data:renderData})[view]()}
 (async()=>{
-  if(DESK){deskPath=await DESK.where();let t=null;try{t=await DESK.load()}catch(e){}
+  if(DESK){deskPath=await DESK.where();try{appVersion=await DESK.version()}catch(e){}let t=null;try{t=await DESK.load()}catch(e){}
     try{const d=t&&JSON.parse(t);S=d&&d.app==="homebook"?d:blank()}catch(e){S=blank();toast("Your Homebook file couldn't be read. Use Restore from a backup.")}
     S.payeeMap=S.payeeMap||{};}
   else S=loadLocal()||blank();
