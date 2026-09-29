@@ -58,29 +58,24 @@ jobs:
       - name: Build Windows installer
         if: runner.os == 'Windows'
         shell: bash
-        run: npx electron-builder --win --publish ${{ inputs.release && 'always' || 'never' }} -c.publish.owner=${{ github.repository_owner }} -c.publish.repo=${{ github.event.repository.name }} -c.publish.releaseType=draft
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish never -c.publish.owner=${{ github.repository_owner }} -c.publish.repo=${{ github.event.repository.name }}
 
-      # The release stays a hidden draft until every file is uploaded, so a failed run can never break updates.
-      - name: Make the release public
+      # Upload the three update files ourselves, all at once, then make the release public.
+      - name: Publish the update
         if: runner.os == 'Windows' && inputs.release
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          EXE="dist/Homebook-Setup-$VERSION.exe"
           echo "Files in dist:"; ls -la dist
-          ASSETS=$(gh release view "v$VERSION" --json assets --jq '.assets[].name')
-          echo "Files on the release:"; echo "$ASSETS"
-          if ! echo "$ASSETS" | grep -qx "latest.yml"; then
-            if [ -f dist/latest.yml ]; then
-              echo "latest.yml was built but not uploaded. Uploading it now."
-              gh release upload "v$VERSION" dist/latest.yml --clobber
-              ASSETS=$(gh release view "v$VERSION" --json assets --jq '.assets[].name')
-            fi
-          fi
-          echo "$ASSETS" | grep -qx "latest.yml" || { echo "::error::latest.yml is missing (it was never built). The release was left as a draft."; exit 1; }
-          echo "$ASSETS" | grep -q "\.exe$" || { echo "::error::The installer was not uploaded. The release was left as a draft."; exit 1; }
-          gh release edit "v$VERSION" --draft=false --latest
+          for f in "$EXE" "$EXE.blockmap" dist/latest.yml; do
+            [ -f "$f" ] || { echo "::error::Missing $f, nothing was published."; exit 1; }
+          done
+          grep -q "Homebook-Setup-$VERSION.exe" dist/latest.yml || { echo "::error::latest.yml doesn't point to the installer, nothing was published."; exit 1; }
+          gh release create "v$VERSION" "$EXE" "$EXE.blockmap" dist/latest.yml \
+            --title "Homebook $VERSION" --notes "Homebook version $VERSION" --latest
+          echo "Published. Files on the release:"
+          gh release view "v$VERSION" --json assets --jq '.assets[].name'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
