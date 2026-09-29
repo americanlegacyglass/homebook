@@ -306,7 +306,9 @@ function cleanPayee(raw){ // turn "SQ *DUTCH BROS 4471 PHX AZ" into "Dutch Bros"
   const SMALL=new Set(["THE","AND","OF","FOR","A"]);
   return s.split(/\s+/).map((w,i)=>w.split("/").map(part=>part.length<=3&&!(i>0&&SMALL.has(part))?part:part.charAt(0)+part.slice(1).toLowerCase()).join("/")).join(" ")}
 function autoRuleFrom(t,newPayee,cat){ // she renamed or categorized an imported item: remember it for next time
-  if(!t.orig)return 0;const match=suggestMatch(t.orig);if(!match||match.length<2)return 0;
+  if(!t.orig)return 0;const match=suggestMatch(t.orig);if(!match||match.length<3)return 0;
+  const GENERIC=/^(CHECK|CHK|DEPOSIT|MOBILE DEPOSIT|TRANSFER|ONLINE TRANSFER|WITHDRAWAL|ATM|ACH|PAYMENT|ZELLE|VENMO|CASH APP|INTEREST|FEE|SERVICE FEE|DIVIDEND|CONTRIBUTION|REFUND|CREDIT|DEBIT|BILL|POS|TRANSFER FROM|TRANSFER TO|ZELLE TO|ZELLE FROM)$/i;
+  if(GENERIC.test(match.trim()))return 0;
   let r=(S.rules||[]).find(x=>x.match.toLowerCase()===match.toLowerCase());
   if(!r){r={id:uid(),match,rename:"",cat:"",auto:true};S.rules.push(r)}
   if(newPayee)r.rename=newPayee;if(cat)r.cat=cat;
@@ -458,7 +460,10 @@ function accountDialog(a){
     dlg.close();markDirty();render()};
   const d=document.getElementById("aDel");
   if(d)d.onclick=()=>{const n=acctTx(a.id).length;if(!confirm(`Delete "${a.name}" and its ${n} transactions? This can't be undone.`))return;
-    S.txns=S.txns.filter(t=>t.acct!==a.id);S.accounts=S.accounts.filter(x=>x.id!==a.id);curAcct=S.accounts[0]?.id||null;dlg.close();markDirty();render()};
+    const gone=new Set(S.txns.filter(t=>t.acct===a.id&&t.xfer).map(t=>t.xfer));
+    S.txns=S.txns.filter(t=>t.acct!==a.id);S.txns.forEach(t=>{if(t.xfer&&gone.has(t.xfer))delete t.xfer});
+    S.recurring=(S.recurring||[]).filter(r=>r.acct!==a.id);S.recurring.forEach(r=>{if(r.toAcct===a.id)r.toAcct=""});
+    S.accounts=S.accounts.filter(x=>x.id!==a.id);curAcct=S.accounts[0]?.id||null;dlg.close();markDirty();render()};
 }
 function txDialog(t){
   openDlg(`<div class="dlg-h"><h2>Edit transaction</h2><button class="x" data-close aria-label="Close">×</button></div>
@@ -499,12 +504,13 @@ function addMonths(iso,n,day){const[y,m]=iso.split("-").map(Number);const t=new 
 function addDays(iso,n){const d=new Date(iso+"T12:00");d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)}
 function advance(r){const day=r.day||+r.next.slice(8);
   r.next=r.freq==="weekly"?addDays(r.next,7):r.freq==="biweekly"?addDays(r.next,14):addMonths(r.next,r.freq==="quarterly"?3:r.freq==="yearly"?12:1,day)}
-function enterRecurring(r){if(!r)return;if(!S.accounts.some(a=>a.id===r.acct)){toast("That payment's account no longer exists. Edit it first.");return}
+function enterRecurring(r,quiet){if(!r)return false;if(!S.accounts.some(a=>a.id===r.acct)){if(!quiet)toast("That payment's account no longer exists. Edit it first.");return false}
   const t={id:uid(),seq:nextSeq(),acct:r.acct,date:r.next,num:"",payee:r.payee,memo:r.memo||"",cat:r.cat||"",amt:r.amt,status:"",recId:r.id};S.txns.push(t);
   if(r.toAcct&&r.toAcct!==r.acct&&acctOf(r.toAcct))S.txns.push(makePartner(t,r.toAcct));
+  return true;
   learnPayee(r.payee,r.cat);advance(r)}
 function runAutoRecurring(){let n=0;const t=today();
-  for(const r of S.recurring||[]){let guard=0;while(r.auto&&r.next<=t&&guard++<60){enterRecurring(r);n++}}return n}
+  for(const r of S.recurring||[]){let guard=0;while(r.auto&&r.next<=t&&guard++<60){if(!enterRecurring(r,true))break;n++}}return n}
 function daysUntil(iso){return Math.round((new Date(iso+"T12:00")-new Date(today()+"T12:00"))/864e5)}
 function dueBadge(iso,incoming){const d=daysUntil(iso),n=x=>x===1?"1 day":x+" days";
   if(incoming){
@@ -673,12 +679,13 @@ function reconcileDialog(){
     $("rRows").innerHTML=open.filter(t=>!end||t.date<=end).map(t=>`<tr><td><input type="checkbox" data-r="${t.id}" ${picked.has(t.id)?"checked":""} aria-label="Cleared"></td>
       <td>${fmtDate(t.date)}</td><td>${esc(t.payee)}</td><td class="num">${t.amt<0?money(-t.amt):""}</td><td class="num in">${t.amt>0?money(t.amt):""}</td></tr>`).join("");
     $("rRows").querySelectorAll("[data-r]").forEach(c=>c.onchange=()=>{c.checked?picked.add(c.dataset.r):picked.delete(c.dataset.r);calc()});calc()};
-  const calc=()=>{const clr=startBal+open.filter(t=>picked.has(t.id)).reduce((s,t)=>s+t.amt,0);$("rClr").textContent=money(clr);
+  const inRange=t=>{const end=$("rDate").value;return!end||t.date<=end};
+  const calc=()=>{const clr=startBal+open.filter(t=>picked.has(t.id)&&inRange(t)).reduce((s,t)=>s+t.amt,0);$("rClr").textContent=money(clr);
     const bv=$("rBal").value.trim();if(!bv){$("rDiff").textContent="Enter balance";$("rDiffBox").className="";$("rDone").disabled=true;return}
     const diff=clr-toCents(bv);$("rDiff").textContent=money(diff);$("rDiffBox").className=diff===0?"ok":"bad";$("rDone").disabled=diff!==0;
     $("rMsg").textContent=diff===0?"Balanced. Click Finish to lock these in.":""};
   $("rBal").oninput=calc;$("rDate").onchange=draw;draw();
-  $("rDone").onclick=()=>{let n=0;for(const t of open)if(picked.has(t.id)){t.status="r";n++}else if(t.status==="c")t.status="";
+  $("rDone").onclick=()=>{let n=0;for(const t of open){if(!inRange(t))continue;if(picked.has(t.id)){t.status="r";n++}else if(t.status==="c")t.status=""}
     dlg.close();markDirty();render();toast(`Balanced. ${n} items reconciled.`)};
 }
 
@@ -687,7 +694,7 @@ function parseDate(s){s=String(s).trim();let m;
   if(m=s.match(/^(\d{4})(\d{2})(\d{2})/))return`${m[1]}-${m[2]}-${m[3]}`;
   if(m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))return`${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
   if(m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.'\s]*(\d{2,4})/)){let y=+m[3];if(y<100)y+=y<70?2000:1900;return`${y}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`}
-  const d=new Date(s);if(!isNaN(d))return d.toISOString().slice(0,10);return""}
+  const d=new Date(s);if(!isNaN(d))return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");return""}
 function parseOFX(txt){const out=[];const re=/<STMTTRN>([\s\S]*?)(?:<\/STMTTRN>|(?=<STMTTRN>)|(?=<\/BANKTRANLIST>))/gi;let m;
   const tag=(b,n)=>{const r=b.match(new RegExp("<"+n+">([^<\\r\\n]*)","i"));return r?r[1].trim():""};
   while(m=re.exec(txt)){const b=m[1];const name=tag(b,"NAME")||tag(b,"PAYEE")||tag(b,"MEMO");
@@ -785,7 +792,7 @@ function reviewImport(items,fname,meta){
   document.querySelectorAll("[data-k]").forEach(c=>c.onchange=()=>{IMP[+c.dataset.k].keep=c.checked;cnt()});
   document.querySelectorAll("[data-c]").forEach(s=>s.onchange=()=>{IMP[+s.dataset.c].cat=s.value});
   document.getElementById("iGo").onclick=()=>{const acct=document.getElementById("iAcct").value,st=document.getElementById("iSt").value;let n=0;
-    for(const it of IMP.filter(x=>x.keep)){S.txns.push({id:uid(),seq:nextSeq(),acct,date:it.date,num:it.num||"",payee:it.payee,orig:it.orig||"",memo:it.memo||"",cat:it.cat||"",amt:it.amt,status:st,fitid:it.fitid||""});learnPayee(it.payee,it.cat);n++}
+    for(const it of IMP.filter(x=>x.keep)){const rc=resolveCat(it.cat);it.cat=rc===null?"":rc;S.txns.push({id:uid(),seq:nextSeq(),acct,date:it.date,num:it.num||"",payee:it.payee,orig:it.orig||"",memo:it.memo||"",cat:it.cat||"",amt:it.amt,status:st,fitid:it.fitid||""});learnPayee(it.payee,it.cat);n++}
     let valMsg="";const vb=document.getElementById("iVal");
     if(vb&&vb.checked&&isInv(acctOf(acct))){const d=meta.value-balances(acct).bal;
       if(d){S.txns.push({id:uid(),seq:nextSeq(),acct,date:meta.asof,num:"",payee:"Market value update",memo:"From statement",cat:"Market change",amt:d,status:"c"})}
@@ -885,11 +892,14 @@ function renderCategories(){
     S.categories.push({name:n,kind:document.getElementById("newKind").value});markDirty();renderCategories();toast("Category added")};
   document.querySelectorAll("[data-n]").forEach(inp=>inp.onchange=()=>{const c=S.categories[+inp.dataset.n],old=c.name,nw=inp.value.trim();
     if(!nw||S.categories.some(x=>x!==c&&x.name.toLowerCase()===nw.toLowerCase())){inp.value=old;toast("Use a different name.");return}
-    c.name=nw;S.txns.forEach(t=>{if(t.cat===old)t.cat=nw});for(const k in S.payeeMap)if(S.payeeMap[k]===old)S.payeeMap[k]=nw;markDirty();toast("Renamed")});
+    c.name=nw;S.txns.forEach(t=>{if(t.cat===old)t.cat=nw});for(const k in S.payeeMap)if(S.payeeMap[k]===old)S.payeeMap[k]=nw;
+    (S.recurring||[]).forEach(r=>{if(r.cat===old)r.cat=nw});(S.rules||[]).forEach(r=>{if(r.cat===old)r.cat=nw});markDirty();toast("Renamed")});
   document.querySelectorAll("[data-kd]").forEach(s=>s.onchange=()=>{S.categories[+s.dataset.kd].kind=s.value;markDirty()});
   document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{const c=S.categories[+b.dataset.del],n=used[c.name]||0;
     if(n&&!confirm(`${n} transactions use "${c.name}". They'll become uncategorized. Remove it?`))return;
-    S.txns.forEach(t=>{if(t.cat===c.name)t.cat=""});S.categories.splice(+b.dataset.del,1);markDirty();renderCategories()});
+    S.txns.forEach(t=>{if(t.cat===c.name)t.cat=""});(S.recurring||[]).forEach(r=>{if(r.cat===c.name)r.cat=""});
+    (S.rules||[]).forEach(r=>{if(r.cat===c.name)r.cat=""});S.rules=(S.rules||[]).filter(r=>r.rename||r.cat);
+    for(const k in S.payeeMap)if(S.payeeMap[k]===c.name)delete S.payeeMap[k];S.categories.splice(+b.dataset.del,1);markDirty();renderCategories()});
 }
 
 function ruleDialog(r,preset){const isNew=!r;const v=r||Object.assign({match:"",rename:"",cat:""},preset||{});
@@ -942,7 +952,7 @@ function renderData(){
   document.getElementById("dCsv").onclick=()=>{const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
     const lines=[["Account","Date","Check #","Payee","Category","Memo","Amount","Status"].join(",")].concat(sorted(S.txns).map(t=>[q(S.accounts.find(a=>a.id===t.acct)?.name),t.date,q(t.num),q(t.payee),q(t.cat),q(t.memo),(t.amt/100).toFixed(2),t.status==="r"?"Reconciled":t.status==="c"?"Cleared":""].join(",")));
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([lines.join("\r\n")],{type:"text/csv"}));a.download="Homebook transactions "+today()+".csv";a.click()};
-  document.getElementById("dReset").onclick=()=>{if(!confirm("Erase all accounts and transactions from this browser?"))return;S=blank();fileHandle=null;curAcct=null;persistLocal();dirty=false;view="register";render()};
+  document.getElementById("dReset").onclick=()=>{if(!confirm("Erase all accounts and transactions from this browser?"))return;S=blank();undoStack=[];fileHandle=null;curAcct=null;persistLocal();dirty=false;view="register";render()};
 }
 
 function renderDataDesk(m){
@@ -985,7 +995,8 @@ function render(){refreshCatList();renderSide();renderSaveState();
   if(changed||auto){if(DESK)deskSave();else persistLocal()}
   snapshotBase();
   if(auto)setTimeout(()=>toast(`Entered ${auto} scheduled ${auto===1?"payment":"payments"}`),400);
-  curAcct=S.accounts[0]?.id||null;render();})();
+  curAcct=S.accounts[0]?.id||null;render();
+  setInterval(()=>{const n=runAutoRecurring();if(n){markDirty();render();toast(`Entered ${n} scheduled ${n===1?"payment":"payments"}`)}},60*60*1000);})();
 </script>
 </body>
 </html>
