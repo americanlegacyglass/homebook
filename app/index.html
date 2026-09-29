@@ -290,6 +290,30 @@ function suggestMatch(p){
   do{prev=s;s=s.replace(pre,"")}while(s!==prev);
   s=s.replace(/[#*]?\s*\d{2,}.*$/,"").replace(/\s+(AZ|PHX|PHOENIX|SCOTTSDALE|MESA|TEMPE)\b.*$/,"").trim();
   return(s.split(/\s+/).slice(0,2).join(" ")||String(p||"")).trim()}
+function looksLikeBank(p){p=String(p||"");return p===p.toUpperCase()&&/[A-Z]/.test(p)||/[#*]|\d{3,}/.test(p)}
+function cleanPayee(raw){ // turn "SQ *DUTCH BROS 4471 PHX AZ" into "Dutch Bros"
+  raw=String(raw||"").trim();if(!raw||!looksLikeBank(raw))return raw;
+  let s=raw.toUpperCase(),prev;const pre=/^(POS|DEBIT|PURCHASE|CHECKCARD|CHECK CARD|ACH|SQ \*|SQ\*|TST\*|TST \*|PAYPAL \*|PP\*|SP \*|SP\*|DDA|RECURRING|CARD|VISA|MC|DEBIT CARD|PREAUTHORIZED|WEB|ONLINE|PMT|PAYMENT TO|\d{3,4}(?=\s))\s*[:*#-]?\s*/;
+  do{prev=s;s=s.replace(pre,"")}while(s!==prev);
+  s=s.replace(/\*.*$/,"").replace(/#.*$/,"").replace(/\s+\d[\d\-\/ ]*.*$/,"").replace(/\.(COM|NET|ORG)\b.*$/,"")
+     .replace(/\s+(AZ|CA|NV|UT|NM|TX|PHX|PHOENIX|SCOTTSDALE|MESA|TEMPE|CHANDLER|GILBERT|GLENDALE|PEORIA|TUCSON|US|USA)(\s.*)?$/,"").replace(/[\s.,-]+$/,"").trim();
+  s=s.replace(/\s+(PMT|PAYMENT|AUTOPAY|AUTO PAY|BILL PAY|BILLPAY|ONLINE|WEB|RECURRING|PURCHASE)$/,"").replace(/[,\s]+(INC|LLC|CORP|CO|LTD)\.?$/,"").trim();
+  if(s.length<2)return raw;
+  const ALIAS=[[/^AMZN|^AMAZON/,"Amazon"],[/^WM SUPERCENTER|^WAL-?MART/,"Walmart"],[/^TGT\b|^TARGET/,"Target"],[/^SBUX|^STARBUCKS/,"Starbucks"],
+    [/^FRYS/,"Fry's"],[/^MCDONALD/,"McDonald's"],[/^CVS/,"CVS Pharmacy"],[/^WALGREEN/,"Walgreens"],[/^CHICK-?FIL-?A/,"Chick-fil-A"],[/^QT\b|^QUIKTRIP/,"QuikTrip"],
+    [/^HOME ?DEPOT|^THE HOME DEPOT/,"Home Depot"],[/^LOWES|^LOWE'S/,"Lowe's"],[/^COSTCO/,"Costco"],[/^SAFEWAY/,"Safeway"],[/^NETFLIX/,"Netflix"],[/^SPOTIFY/,"Spotify"]];
+  for(const[re,name]of ALIAS)if(re.test(s))return name;
+  const SMALL=new Set(["THE","AND","OF","FOR","A"]);
+  return s.split(/\s+/).map((w,i)=>w.split("/").map(part=>part.length<=3&&!(i>0&&SMALL.has(part))?part:part.charAt(0)+part.slice(1).toLowerCase()).join("/")).join(" ")}
+function autoRuleFrom(t,newPayee,cat){ // she renamed or categorized an imported item: remember it for next time
+  if(!t.orig)return 0;const match=suggestMatch(t.orig);if(!match||match.length<2)return 0;
+  let r=(S.rules||[]).find(x=>x.match.toLowerCase()===match.toLowerCase());
+  if(!r){r={id:uid(),match,rename:"",cat:"",auto:true};S.rules.push(r)}
+  if(newPayee)r.rename=newPayee;if(cat)r.cat=cat;
+  let n=0;const k=match.toLowerCase();
+  for(const x of S.txns)if(x!==t&&x.orig&&x.orig.toLowerCase().includes(k)){
+    let ch=false;if(r.rename&&x.payee!==r.rename){x.payee=r.rename;ch=true}if(r.cat&&!x.cat){x.cat=r.cat;ch=true}if(ch)n++}
+  return n}
 function learnPayee(p,c){if(p&&c)S.payeeMap[p.trim().toLowerCase()]=c}
 function guessCat(p){if(!p)return"";const k=p.trim().toLowerCase();if(S.payeeMap[k])return S.payeeMap[k];
   for(const key in S.payeeMap){if(key.length>3&&(k.includes(key)||key.includes(k)))return S.payeeMap[key]}return""}
@@ -450,15 +474,17 @@ function txDialog(t){
     <label>Status<select id="eSt"><option value="">Not cleared</option><option value="c">Cleared</option><option value="r">Reconciled</option></select></label>
   </div>${t.xfer?`<p class="note" style="margin-top:1rem">This is a transfer. Changing the amount or date updates the matching entry in the other account.</p>`:""}${t.status==="r"?`<p class="warn" style="margin-top:1rem">This was part of a finished reconciliation. Changing the amount will throw off your balance with the bank.</p>`:""}</div>
   <div class="dlg-f"><button class="danger" id="eDel">Delete</button><button id="eRule">Make a rule</button><button id="eRep">Make this repeat</button><span class="grow"></span><button data-close>Cancel</button><button class="primary" id="eSave">Save</button></div>`);
-  const $=id=>document.getElementById(id);$("eDir").value=t.amt<0?"out":"in";$("eSt").value=t.status||"";
+  const $=id=>document.getElementById(id);t._oldPayee=t.payee;$("eDir").value=t.amt<0?"out":"in";$("eSt").value=t.status||"";
   $("eSave").onclick=()=>{const amt=Math.abs(toCents($("eAmt").value));if(!amt){toast("Enter an amount.");return}
     const cat=readCat($("eCat"));if(cat===null)return;
     Object.assign(t,{date:$("eDate").value||t.date,num:$("eNum").value.trim(),payee:$("ePayee").value.trim(),cat,acct:$("eAcct").value,
       amt:$("eDir").value==="out"?-amt:amt,memo:$("eMemo").value.trim(),status:$("eSt").value});
     learnPayee(t.payee,t.cat);
+    const oldPayee=t._oldPayee;delete t._oldPayee;
+    const learned=autoRuleFrom(t,t.payee!==oldPayee?t.payee:"",t.cat);
     const partner=t.xfer&&S.txns.find(x=>x.xfer===t.xfer&&x.id!==t.id);
     if(partner){partner.amt=-t.amt;partner.date=t.date;if(partner.acct===t.acct){delete partner.xfer;delete t.xfer}}
-    dlg.close();markDirty();render();toast(partner?"Saved in both accounts":"Saved");if(!partner)offerLink(t)};
+    dlg.close();markDirty();render();toast(learned?`Saved. Also updated ${learned} matching ${learned===1?"transaction":"transactions"}, and future imports will match.`:partner?"Saved in both accounts":"Saved");if(!partner)offerLink(t)};
   $("eRule").onclick=()=>ruleDialog(null,{match:suggestMatch(t.orig||t.payee),rename:$("ePayee").value.trim(),cat:resolveCat($("eCat").value)||"",sample:t.orig||t.payee});
   $("eRep").onclick=()=>{const d=new Date(t.date+"T12:00");d.setMonth(d.getMonth()+1);
     recurringDialog(null,{payee:t.payee,cat:t.cat,amt:t.amt,acct:t.acct,freq:"monthly",next:d.toISOString().slice(0,10),memo:t.memo})};
@@ -736,6 +762,7 @@ function reviewImport(items,fname,meta){
   items=items.map((it,i)=>{const dup=existing.some(t=>(it.fitid&&t.fitid===it.fitid)||(t.acct===curAcct&&t.date===it.date&&t.amt===it.amt&&t.payee.toLowerCase()===it.payee.toLowerCase())
       ||(t.acct===curAcct&&!t.fitid&&t.amt===it.amt&&Math.abs(new Date(t.date)-new Date(it.date))<=3*864e5));
     const rule=findRule(it.payee);if(rule&&rule.rename){it.orig=it.payee;it.payee=rule.rename}
+    else if(S.autoClean!==false){const c=cleanPayee(it.payee);if(c!==it.payee){it.orig=it.payee;it.payee=c}}
     const known=S.categories.some(c=>c.name===it.cat);let cat=(rule&&rule.cat)||(known?it.cat:guessCat(it.payee));
     if(!cat&&isInv(acctOf(curAcct)))cat=it.amt>0?"Investment contribution":"Investment withdrawal";
     return{...it,i,dup,keep:!dup,cat}});
@@ -832,10 +859,11 @@ function renderCategories(){
   m.innerHTML=`<div class="head"><div><h1>Categories and rules</h1><p class="sub">Renaming a category updates every transaction that uses it.</p></div></div>
   <div class="panel pad" style="max-width:900px;margin-bottom:1.2rem">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap"><h2 style="margin:0">Payee rules</h2>
-      <span><button id="runRules" ${R.length?"":"disabled"}>Apply rules to existing transactions</button> <button class="primary" id="addRule">Add rule</button></span></div>
-    <p class="note">Rules clean up messy bank names when you import. For example, anything containing <b>DUTCH BROS</b> becomes <b>Dutch Bros</b> in <b>Coffee</b>. You can also make a rule from any transaction with its Make a rule button.</p>
+      <span><button id="runRules">Clean up existing transactions</button> <button class="primary" id="addRule">Add rule</button></span></div>
+    <label style="display:flex;gap:.5rem;align-items:center;margin:.8rem 0"><input type="checkbox" id="autoClean" ${S.autoClean!==false?"checked":""}> Clean up bank names automatically when importing, like <b>SQ *DUTCH BROS 4471 PHX AZ</b> → <b>Dutch Bros</b></label>
+    <p class="note">You don't need to make rules yourself. When you rename or categorize an imported transaction, Homebook remembers it and does the same for matching transactions now and in future imports. Rules marked <i>automatic</i> were learned that way. You can still add or edit them here.</p>
     ${R.length?`<table><thead><tr><th>If the bank name contains</th><th>Rename to</th><th>Category</th><th></th></tr></thead><tbody>
-      ${R.map(r=>`<tr><td><code>${esc(r.match)}</code></td><td>${esc(r.rename||"(keep bank name)")}</td><td>${r.cat?`<span class="cat-pill">${esc(r.cat)}</span>`:""}</td>
+      ${R.map(r=>`<tr><td><code>${esc(r.match)}</code>${r.auto?' <small class="note"><i>automatic</i></small>':""}</td><td>${esc(r.rename||"(keep bank name)")}</td><td>${r.cat?`<span class="cat-pill">${esc(r.cat)}</span>`:""}</td>
       <td class="acts"><button data-redit="${r.id}">Edit</button></td></tr>`).join("")}</tbody></table>`:`<p class="note"><i>No rules yet.</i></p>`}
   </div>
   <h2>Categories</h2>
@@ -847,8 +875,10 @@ function renderCategories(){
   </div>`;
   S.categories.forEach((c,i)=>document.querySelector(`[data-kd="${i}"]`).value=c.kind);
   document.getElementById("addRule").onclick=()=>ruleDialog();
+  document.getElementById("autoClean").onchange=e=>{S.autoClean=e.target.checked;markDirty();toast(e.target.checked?"Bank names will be cleaned up":"Bank names will be kept as they are")};
   document.querySelectorAll("[data-redit]").forEach(b=>b.onclick=()=>ruleDialog(S.rules.find(r=>r.id===b.dataset.redit)));
-  document.getElementById("runRules").onclick=()=>{let n=0;for(const t of S.txns)if(applyRule(t))n++;
+  document.getElementById("runRules").onclick=()=>{let n=0;for(const t of S.txns){let ch=applyRule(t);
+      if(!ch&&S.autoClean!==false&&!t.xfer){const raw=t.orig||t.payee,c=cleanPayee(raw);if(c!==t.payee&&c!==raw){if(!t.orig)t.orig=raw;t.payee=c;ch=true}}if(ch)n++}
     if(n){markDirty();renderCategories();toast(`Cleaned up ${n} ${n===1?"transaction":"transactions"}`)}else toast("No transactions matched your rules")};
   document.getElementById("addCat").onclick=()=>{const n=document.getElementById("newCat").value.trim();if(!n)return;
     if(S.categories.some(c=>c.name.toLowerCase()===n.toLowerCase())){toast("That category already exists.");return}
