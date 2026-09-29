@@ -108,22 +108,38 @@ app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(
 // Mac requires a paid Apple code-signing certificate for automatic updates, so Mac updates are installed by hand.
 function updatesEnabled() { return app.isPackaged && process.platform === "win32"; }
 let manualCheck = false, updateBusy = false;
+let updateState = "idle"; // idle | checking | downloading | ready
 function checkForUpdates(manual) {
-  if (updateBusy) return;
+  if (updateBusy) {
+    if (manual) dialog.showMessageBox(BrowserWindow.getAllWindows()[0], { type: "info",
+      message: updateState === "downloading" ? "An update is downloading" : updateState === "ready" ? "An update is ready" : "Already checking for updates",
+      detail: updateState === "ready" ? "Close Homebook and open it again to finish updating." : "You'll be asked to restart when it's ready." });
+    return;
+  }
+  updateState = "checking";
   manualCheck = manual; updateBusy = true;
   autoUpdater.checkForUpdates().catch(err => {
-    updateBusy = false;
+    updateBusy = false; updateState = "idle";
     if (manual) dialog.showMessageBox({ type: "info", message: "Couldn't check for updates", detail: "Check your internet connection and try again.\n\n" + (err?.message || err) });
   });
 }
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.on("update-available", info => {
+  updateState = "downloading";
+  if (manualCheck) dialog.showMessageBox(BrowserWindow.getAllWindows()[0], { type: "info", message: `Found Homebook ${info.version}`,
+    detail: "It's downloading now. You can keep working, and you'll be asked to restart when it's ready." });
+});
+autoUpdater.on("download-progress", p => {
+  const w = BrowserWindow.getAllWindows()[0]; if (w) w.setProgressBar(p.percent / 100); // progress shows on the taskbar icon
+});
 autoUpdater.on("update-not-available", () => {
-  updateBusy = false;
+  updateBusy = false; updateState = "idle";
   if (manualCheck) dialog.showMessageBox({ type: "info", message: "Homebook is up to date", detail: `You have version ${app.getVersion()}.` });
 });
 autoUpdater.on("update-downloaded", async info => {
-  updateBusy = false;
+  updateState = "ready";
+  { const w0 = BrowserWindow.getAllWindows()[0]; if (w0) w0.setProgressBar(-1); }
   const w = BrowserWindow.getAllWindows()[0];
   const r = await dialog.showMessageBox(w, {
     type: "info", buttons: ["Restart now", "Later"], defaultId: 0, cancelId: 1,
@@ -133,4 +149,9 @@ autoUpdater.on("update-downloaded", async info => {
   if (r.response === 0) autoUpdater.quitAndInstall(true, true); // silent install, then reopen Homebook
   else if (w) { w.focus(); w.webContents.focus(); }
 });
-autoUpdater.on("error", err => { updateBusy = false; console.error("Update error:", err); });
+autoUpdater.on("error", err => {
+  updateBusy = false; updateState = "idle";
+  const w = BrowserWindow.getAllWindows()[0]; if (w) w.setProgressBar(-1);
+  console.error("Update error:", err);
+  if (manualCheck) dialog.showMessageBox(w, { type: "warning", message: "Couldn't update Homebook", detail: String(err?.message || err).slice(0, 400) });
+});
