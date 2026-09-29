@@ -33,6 +33,16 @@ jobs:
           node-version: lts/*
       - run: npm install
 
+      # Stop before building if a code file is broken (for example, the wrong text pasted into it).
+      - name: Check code files
+        shell: bash
+        run: |
+          node --check main.js
+          node --check preload.js
+          node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))"
+          node -e "const s=require('fs').readFileSync('app/index.html','utf8');if(!s.startsWith('<!DOCTYPE html>'))throw new Error('app/index.html is not the Homebook app file');require('vm').createScript(s.split('<script>')[1].split('</script>')[0])"
+          echo "All code files look valid."
+
       - name: Create version tag
         if: runner.os == 'Windows' && inputs.release
         shell: bash
