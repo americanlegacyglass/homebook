@@ -15,7 +15,13 @@ function ensureDirs() { fs.mkdirSync(backupDir(), { recursive: true }); }
 function atomicWrite(file, text) {
   const tmp = file + ".tmp";
   fs.writeFileSync(tmp, text, "utf8");
-  fs.renameSync(tmp, file);
+  // Windows: OneDrive or antivirus can lock the file for a moment. Retry, then fall back to a direct write.
+  for (let i = 0; i < 5; i++) {
+    try { fs.renameSync(tmp, file); return; }
+    catch (e) { if (e.code !== "EPERM" && e.code !== "EBUSY" && e.code !== "EACCES") throw e; const until = Date.now() + 150; while (Date.now() < until) {} }
+  }
+  fs.writeFileSync(file, text, "utf8");
+  try { fs.unlinkSync(tmp); } catch (e) {}
 }
 
 // One backup per day, keep the newest 30.
