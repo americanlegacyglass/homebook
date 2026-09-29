@@ -134,7 +134,10 @@ td.acts{white-space:nowrap;text-align:right}td.acts button{padding:.3rem .65rem;
 table.inv .ck{display:none}
 .cat-edit{display:grid;grid-template-columns:1fr 150px auto;gap:.6rem;align-items:center;padding:.35rem 0}
 .toast{position:fixed;bottom:1.4rem;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:.7rem 1.1rem;border-radius:var(--radius-s);opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
-.toast.show{opacity:1}
+.toast.show{opacity:1;pointer-events:auto}
+.toast button{margin-left:.9rem;background:none;border:1px solid #ffffff66;color:#fff;padding:.2rem .7rem;font-weight:600}
+.toast button:hover{border-color:#fff}
+.undo-side{margin-top:.5rem;width:100%;background:none!important;border:1px solid #ffffff55!important;color:#EAF2ED!important;font-weight:500!important}
 @media (max-width:820px){.app{grid-template-columns:1fr}aside{flex-direction:row;flex-wrap:wrap}.grid2{grid-template-columns:1fr}main{padding:1rem}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -153,7 +156,7 @@ table.inv .ck{display:none}
       <a data-view="register" class="on">Register</a>
       <a data-view="recurring">Recurring</a>
       <a data-view="reports">Spending</a>
-      <a data-view="categories">Categories</a>
+      <a data-view="categories">Categories and rules</a>
       <a data-view="data">Save and backup</a>
     </div>
     <div class="save-state" id="saveState"></div>
@@ -195,19 +198,37 @@ if(DESK&&DESK.refocus){ // Windows: restore typing after yes/no pop-ups
 }let deskPath="",saveChain=Promise.resolve();
 let S=null, view="register", curAcct=null, fileHandle=null, dirty=false, lastSaved=null, filterMonth="", search="";
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-function blank(){return{app:"homebook",version:1,catsVersion:4,recurring:[],accounts:[],categories:DEFAULT_CATS.map(([name,kind])=>({name,kind})),txns:[],payeeMap:{}}}
+function blank(){return{app:"homebook",version:1,catsVersion:4,recurring:[],rules:[],accounts:[],categories:DEFAULT_CATS.map(([name,kind])=>({name,kind})),txns:[],payeeMap:{}}}
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money=c=>{const n=(c||0)/100;return(n<0?"-":"")+"$"+Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
 const toCents=v=>{if(v===""||v==null)return 0;const n=parseFloat(String(v).replace(/[$,\s]/g,"").replace(/^\((.*)\)$/,"-$1"));return isNaN(n)?0:Math.round(n*100)};
 const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
 const fmtDate=d=>{if(!d)return"";const[y,m,dd]=d.split("-");return`${+m}/${+dd}/${y}`};
 const monthName=ym=>{const[y,m]=ym.split("-");return new Date(+y,+m-1,1).toLocaleString("en-US",{month:"long",year:"numeric"})};
-function toast(t){const el=document.getElementById("toast");el.textContent=t;el.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove("show"),2400)}
+function toast(t){const el=document.getElementById("toast");const canUndo=undoStack.length&&Date.now()-lastUndoPush<1500;
+  el.innerHTML="";el.append(document.createTextNode(t));
+  if(canUndo){const b=document.createElement("button");b.textContent="Undo";b.onclick=()=>{el.classList.remove("show");undo()};el.append(b)}
+  el.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove("show"),canUndo?6000:2400)}
+/* undo: every saved change keeps a copy of the state just before it */
+let undoStack=[],prevJSON=null,lastUndoPush=0;const UNDO_MAX=30;
+function snapshotBase(){prevJSON=JSON.stringify(S)}
+let undoTick=false; // several saves during one action count as one undo step
+function recordUndo(){const now=JSON.stringify(S);if(prevJSON&&prevJSON!==now){
+    if(!undoTick){undoStack.push(prevJSON);if(undoStack.length>UNDO_MAX)undoStack.shift();undoTick=true;setTimeout(()=>undoTick=false,0)}
+    lastUndoPush=Date.now()}
+  prevJSON=now}
+function undo(){if(!undoStack.length){toast("Nothing to undo");return}
+  S=JSON.parse(undoStack.pop());prevJSON=JSON.stringify(S);lastUndoPush=0;
+  if(!S.accounts.some(a=>a.id===curAcct))curAcct=S.accounts[0]?.id||null;
+  dirty=true;if(DESK)deskSave();else{persistLocal();if(fileHandle)saveToFile(true)}
+  if(dlg.open)dlg.close();render();const el=document.getElementById("toast");el.textContent="Undone";el.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove("show"),2000)}
+document.addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&e.key.toLowerCase()==="z"){
+  const a=document.activeElement;if(a&&(a.tagName==="INPUT"||a.tagName==="TEXTAREA"||a.tagName==="SELECT"))return;e.preventDefault();undo()}});
 const catKind=n=>(S.categories.find(c=>c.name===n)||{}).kind;
 
 /* ---------- storage: autosave in browser + real file on disk ---------- */
 function persistLocal(){try{localStorage.setItem("homebook-data",JSON.stringify(S))}catch(e){}}
-function markDirty(){dirty=true;if(DESK){deskSave();return}persistLocal();renderSaveState();if(fileHandle)saveToFile(true)}
+function markDirty(){recordUndo();dirty=true;if(DESK){deskSave();return}persistLocal();renderSaveState();if(fileHandle)saveToFile(true)}
 function deskSave(){const text=JSON.stringify(S);renderSaveState();
   saveChain=saveChain.then(()=>DESK.save(text)).then(()=>{dirty=false;lastSaved=new Date();renderSaveState()})
     .catch(()=>{toast("Couldn't save. Check that the Documents folder is available.");renderSaveState()})}
@@ -234,19 +255,22 @@ async function openFile(){
 }
 function loadData(txt,handle){
   try{const d=JSON.parse(txt);if(!d||d.app!=="homebook")throw 0;
-    S=d;S.payeeMap=S.payeeMap||{};S.recurring=S.recurring||[];ensureCats();fileHandle=handle||null;curAcct=S.accounts[0]?.id||null;dirty=false;lastSaved=new Date();
+    S=d;S.payeeMap=S.payeeMap||{};S.recurring=S.recurring||[];S.rules=S.rules||[];ensureCats();undoStack=[];snapshotBase();fileHandle=handle||null;curAcct=S.accounts[0]?.id||null;dirty=false;lastSaved=new Date();
     if(!DESK)persistLocal();render();toast("Opened your Homebook file")}
   catch(e){toast("That isn't a Homebook file.")}
 }
 document.getElementById("fileOpen").onchange=async e=>{const f=e.target.files[0];if(f)loadData(await f.text());e.target.value=""};
 function renderSaveState(){
   const el=document.getElementById("saveState");
-  if(DESK){el.innerHTML=dirty?`<b>Saving…</b>`:`<b>Saved on this computer</b>Every change saves automatically, with a daily backup.`;return}
+  const ub=undoStack.length?`<button class="undo-side" id="undoSide">Undo last change</button>`:"";
+  if(DESK){el.innerHTML=(dirty?`<b>Saving…</b>`:`<b>Saved on this computer</b>Every change saves automatically, with a daily backup.`)+ub;
+    const u=document.getElementById("undoSide");if(u)u.onclick=undo;return}
   let msg;
   if(fileHandle&&!dirty)msg=`<b>Saved to your file</b>Changes save automatically.`;
   else if(dirty)msg=`<b>Unsaved changes</b>Kept in this browser for now. Save to a file so nothing is lost.`;
   else msg=`<b>Not saved to a file yet</b>Save to a file on your computer to keep a safe copy.`;
-  el.innerHTML=msg+(fileHandle&&!dirty?"":`<button id="saveNow">Save to file</button>`);
+  el.innerHTML=msg+(fileHandle&&!dirty?"":`<button id="saveNow">Save to file</button>`)+ub;
+  {const u=document.getElementById("undoSide");if(u)u.onclick=undo;}
   const b=document.getElementById("saveNow");if(b)b.onclick=()=>saveToFile();
 }
 window.addEventListener("beforeunload",e=>{if(dirty&&!DESK){e.preventDefault();e.returnValue=""}});
@@ -256,6 +280,16 @@ const acctTx=id=>S.txns.filter(t=>t.acct===id);
 function sorted(list){return[...list].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(a.seq||0)-(b.seq||0))}
 function balances(id){const a=S.accounts.find(x=>x.id===id);let bal=a?a.opening:0,clr=bal;
   for(const t of acctTx(id)){bal+=t.amt;if(t.status)clr+=t.amt}return{bal,clr}}
+function findRule(text){const k=String(text||"").toLowerCase();if(!k)return null;
+  return[...(S.rules||[])].filter(r=>r.match&&k.includes(r.match.toLowerCase())).sort((a,b)=>b.match.length-a.match.length)[0]||null}
+function applyRule(t){const r=findRule(t.orig||t.payee);if(!r)return false;let ch=false;
+  if(r.rename&&t.payee!==r.rename){if(!t.orig)t.orig=t.payee;t.payee=r.rename;ch=true}
+  if(r.cat&&!t.cat){t.cat=r.cat;ch=true}return ch}
+function suggestMatch(p){
+  let s=String(p||"").toUpperCase(),prev;const pre=/^(POS|DEBIT|PURCHASE|CHECKCARD|CHECK CARD|ACH|SQ \*|TST\*|PAYPAL \*|SP \*|DDA|RECURRING|CARD)\s*[:*#]?\s*/;
+  do{prev=s;s=s.replace(pre,"")}while(s!==prev);
+  s=s.replace(/[#*]?\s*\d{2,}.*$/,"").replace(/\s+(AZ|PHX|PHOENIX|SCOTTSDALE|MESA|TEMPE)\b.*$/,"").trim();
+  return(s.split(/\s+/).slice(0,2).join(" ")||String(p||"")).trim()}
 function learnPayee(p,c){if(p&&c)S.payeeMap[p.trim().toLowerCase()]=c}
 function guessCat(p){if(!p)return"";const k=p.trim().toLowerCase();if(S.payeeMap[k])return S.payeeMap[k];
   for(const key in S.payeeMap){if(key.length>3&&(k.includes(key)||key.includes(k)))return S.payeeMap[key]}return""}
@@ -358,7 +392,8 @@ function renderRegister(){
   $("xferBtn").onclick=()=>transferDialog(a.id);
   document.querySelectorAll("[data-up-enter]").forEach(b=>b.onclick=()=>{enterRecurring(S.recurring.find(r=>r.id===b.dataset.upEnter));markDirty();render();toast("Entered")});
   $("editAcct").onclick=e=>{e.preventDefault();accountDialog(a)};
-  $("nPayee").onchange=()=>{const g=guessCat($("nPayee").value);if(g&&!$("nCat").value)$("nCat").value=g};
+  $("nPayee").onchange=()=>{const r=findRule($("nPayee").value);if(r){if(r.rename)$("nPayee").value=r.rename;if(r.cat&&!$("nCat").value)$("nCat").value=r.cat}
+    const g=guessCat($("nPayee").value);if(g&&!$("nCat").value)$("nCat").value=g};
   const add=()=>{
     const out=toCents($("nOut").value),inn=toCents($("nIn").value),payee=$("nPayee").value.trim();
     if(!payee){toast("Enter who it was paid to or from.");$("nPayee").focus();return}
@@ -406,7 +441,7 @@ function txDialog(t){
   <div class="dlg-b"><div class="form">
     <label>Date<input type="date" id="eDate" value="${t.date}"></label>
     <label>Check #<input id="eNum" value="${esc(t.num||"")}"></label>
-    <label class="full">Payee<input id="ePayee" value="${esc(t.payee)}"></label>
+    <label class="full">Payee<input id="ePayee" value="${esc(t.payee)}">${t.orig&&t.orig!==t.payee?`<small class="note">From the bank: ${esc(t.orig)}</small>`:""}</label>
     <label>Category${catInput('id="eCat"',t.cat)}</label>
     <label>Account<select id="eAcct">${S.accounts.map(a=>`<option value="${a.id}" ${a.id===t.acct?"selected":""}>${esc(a.name)}</option>`).join("")}</select></label>
     <label>Type<select id="eDir"><option value="out">Payment</option><option value="in">Deposit</option></select></label>
@@ -414,7 +449,7 @@ function txDialog(t){
     <label class="full">Memo<input id="eMemo" value="${esc(t.memo||"")}"></label>
     <label>Status<select id="eSt"><option value="">Not cleared</option><option value="c">Cleared</option><option value="r">Reconciled</option></select></label>
   </div>${t.xfer?`<p class="note" style="margin-top:1rem">This is a transfer. Changing the amount or date updates the matching entry in the other account.</p>`:""}${t.status==="r"?`<p class="warn" style="margin-top:1rem">This was part of a finished reconciliation. Changing the amount will throw off your balance with the bank.</p>`:""}</div>
-  <div class="dlg-f"><button class="danger" id="eDel">Delete</button><button id="eRep">Make this repeat</button><span class="grow"></span><button data-close>Cancel</button><button class="primary" id="eSave">Save</button></div>`);
+  <div class="dlg-f"><button class="danger" id="eDel">Delete</button><button id="eRule">Make a rule</button><button id="eRep">Make this repeat</button><span class="grow"></span><button data-close>Cancel</button><button class="primary" id="eSave">Save</button></div>`);
   const $=id=>document.getElementById(id);$("eDir").value=t.amt<0?"out":"in";$("eSt").value=t.status||"";
   $("eSave").onclick=()=>{const amt=Math.abs(toCents($("eAmt").value));if(!amt){toast("Enter an amount.");return}
     const cat=readCat($("eCat"));if(cat===null)return;
@@ -424,6 +459,7 @@ function txDialog(t){
     const partner=t.xfer&&S.txns.find(x=>x.xfer===t.xfer&&x.id!==t.id);
     if(partner){partner.amt=-t.amt;partner.date=t.date;if(partner.acct===t.acct){delete partner.xfer;delete t.xfer}}
     dlg.close();markDirty();render();toast(partner?"Saved in both accounts":"Saved");if(!partner)offerLink(t)};
+  $("eRule").onclick=()=>ruleDialog(null,{match:suggestMatch(t.orig||t.payee),rename:$("ePayee").value.trim(),cat:resolveCat($("eCat").value)||"",sample:t.orig||t.payee});
   $("eRep").onclick=()=>{const d=new Date(t.date+"T12:00");d.setMonth(d.getMonth()+1);
     recurringDialog(null,{payee:t.payee,cat:t.cat,amt:t.amt,acct:t.acct,freq:"monthly",next:d.toISOString().slice(0,10),memo:t.memo})};
   $("eDel").onclick=()=>{if(!confirm(t.xfer?"Delete this transfer? The matching entry in the other account is deleted too.":"Delete this transaction?"))return;S.txns=S.txns.filter(x=>x.id!==t.id&&!(t.xfer&&x.xfer===t.xfer));dlg.close();markDirty();render();toast("Deleted")};
@@ -699,7 +735,8 @@ function reviewImport(items,fname,meta){
   const existing=S.txns;
   items=items.map((it,i)=>{const dup=existing.some(t=>(it.fitid&&t.fitid===it.fitid)||(t.acct===curAcct&&t.date===it.date&&t.amt===it.amt&&t.payee.toLowerCase()===it.payee.toLowerCase())
       ||(t.acct===curAcct&&!t.fitid&&t.amt===it.amt&&Math.abs(new Date(t.date)-new Date(it.date))<=3*864e5));
-    const known=S.categories.some(c=>c.name===it.cat);let cat=known?it.cat:guessCat(it.payee);
+    const rule=findRule(it.payee);if(rule&&rule.rename){it.orig=it.payee;it.payee=rule.rename}
+    const known=S.categories.some(c=>c.name===it.cat);let cat=(rule&&rule.cat)||(known?it.cat:guessCat(it.payee));
     if(!cat&&isInv(acctOf(curAcct)))cat=it.amt>0?"Investment contribution":"Investment withdrawal";
     return{...it,i,dup,keep:!dup,cat}});
   IMP=items;const nd=items.filter(x=>x.dup).length;
@@ -721,7 +758,7 @@ function reviewImport(items,fname,meta){
   document.querySelectorAll("[data-k]").forEach(c=>c.onchange=()=>{IMP[+c.dataset.k].keep=c.checked;cnt()});
   document.querySelectorAll("[data-c]").forEach(s=>s.onchange=()=>{IMP[+s.dataset.c].cat=s.value});
   document.getElementById("iGo").onclick=()=>{const acct=document.getElementById("iAcct").value,st=document.getElementById("iSt").value;let n=0;
-    for(const it of IMP.filter(x=>x.keep)){S.txns.push({id:uid(),seq:nextSeq(),acct,date:it.date,num:it.num||"",payee:it.payee,memo:it.memo||"",cat:it.cat||"",amt:it.amt,status:st,fitid:it.fitid||""});learnPayee(it.payee,it.cat);n++}
+    for(const it of IMP.filter(x=>x.keep)){S.txns.push({id:uid(),seq:nextSeq(),acct,date:it.date,num:it.num||"",payee:it.payee,orig:it.orig||"",memo:it.memo||"",cat:it.cat||"",amt:it.amt,status:st,fitid:it.fitid||""});learnPayee(it.payee,it.cat);n++}
     let valMsg="";const vb=document.getElementById("iVal");
     if(vb&&vb.checked&&isInv(acctOf(acct))){const d=meta.value-balances(acct).bal;
       if(d){S.txns.push({id:uid(),seq:nextSeq(),acct,date:meta.asof,num:"",payee:"Market value update",memo:"From statement",cat:"Market change",amt:d,status:"c"})}
@@ -791,7 +828,17 @@ function trendChart(ym,spent,got,inMonth){
 function renderCategories(){
   const m=document.getElementById("main");
   const used={};S.txns.forEach(t=>used[t.cat]=(used[t.cat]||0)+1);
-  m.innerHTML=`<div class="head"><div><h1>Categories</h1><p class="sub">Renaming a category updates every transaction that uses it.</p></div></div>
+  const R=S.rules||[];
+  m.innerHTML=`<div class="head"><div><h1>Categories and rules</h1><p class="sub">Renaming a category updates every transaction that uses it.</p></div></div>
+  <div class="panel pad" style="max-width:900px;margin-bottom:1.2rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap"><h2 style="margin:0">Payee rules</h2>
+      <span><button id="runRules" ${R.length?"":"disabled"}>Apply rules to existing transactions</button> <button class="primary" id="addRule">Add rule</button></span></div>
+    <p class="note">Rules clean up messy bank names when you import. For example, anything containing <b>DUTCH BROS</b> becomes <b>Dutch Bros</b> in <b>Coffee</b>. You can also make a rule from any transaction with its Make a rule button.</p>
+    ${R.length?`<table><thead><tr><th>If the bank name contains</th><th>Rename to</th><th>Category</th><th></th></tr></thead><tbody>
+      ${R.map(r=>`<tr><td><code>${esc(r.match)}</code></td><td>${esc(r.rename||"(keep bank name)")}</td><td>${r.cat?`<span class="cat-pill">${esc(r.cat)}</span>`:""}</td>
+      <td class="acts"><button data-redit="${r.id}">Edit</button></td></tr>`).join("")}</tbody></table>`:`<p class="note"><i>No rules yet.</i></p>`}
+  </div>
+  <h2>Categories</h2>
   <div class="panel pad" style="max-width:640px">
     <div class="cat-edit"><input id="newCat" placeholder="New category name"><select id="newKind"><option value="spend">Spending</option><option value="income">Money in</option><option value="transfer">Transfer</option></select><button class="primary" id="addCat">Add</button></div>
     <hr style="border:0;border-top:1px solid var(--line);margin:.8rem 0">
@@ -799,6 +846,10 @@ function renderCategories(){
       <button class="danger" data-del="${i}" title="${used[c.name]||0} transactions use this">Remove</button></div>`).join("")}
   </div>`;
   S.categories.forEach((c,i)=>document.querySelector(`[data-kd="${i}"]`).value=c.kind);
+  document.getElementById("addRule").onclick=()=>ruleDialog();
+  document.querySelectorAll("[data-redit]").forEach(b=>b.onclick=()=>ruleDialog(S.rules.find(r=>r.id===b.dataset.redit)));
+  document.getElementById("runRules").onclick=()=>{let n=0;for(const t of S.txns)if(applyRule(t))n++;
+    if(n){markDirty();renderCategories();toast(`Cleaned up ${n} ${n===1?"transaction":"transactions"}`)}else toast("No transactions matched your rules")};
   document.getElementById("addCat").onclick=()=>{const n=document.getElementById("newCat").value.trim();if(!n)return;
     if(S.categories.some(c=>c.name.toLowerCase()===n.toLowerCase())){toast("That category already exists.");return}
     S.categories.push({name:n,kind:document.getElementById("newKind").value});markDirty();renderCategories();toast("Category added")};
@@ -811,7 +862,32 @@ function renderCategories(){
     S.txns.forEach(t=>{if(t.cat===c.name)t.cat=""});S.categories.splice(+b.dataset.del,1);markDirty();renderCategories()});
 }
 
-/* ---------- data ---------- */
+function ruleDialog(r,preset){const isNew=!r;const v=r||Object.assign({match:"",rename:"",cat:""},preset||{});
+  openDlg(`<div class="dlg-h"><h2>${isNew?"Add payee rule":"Edit payee rule"}</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b">${v.sample?`<p class="note" style="margin-top:0">Bank name: <b>${esc(v.sample)}</b></p>`:""}<div class="form">
+    <label class="full">If the bank name contains<input id="rMatch" value="${esc(v.match)}" placeholder="DUTCH BROS"></label>
+    <label>Rename it to<input id="rName" value="${esc(v.rename)}" placeholder="Dutch Bros"></label>
+    <label>Category${catInput('id="rCat"',v.cat)}</label>
+    <p class="note full" style="grid-column:1/-1;margin:0">Use a short piece that's always in the name, without store numbers or dates. Capital letters don't matter.</p>
+    <p class="full" id="rPrev" style="grid-column:1/-1;margin:0"></p>
+  </div></div>
+  <div class="dlg-f">${isNew?"":`<button class="danger" id="rDel">Delete rule</button>`}<span class="grow"></span><button data-close>Cancel</button><button class="primary" id="rSave">${isNew?"Add rule":"Save"}</button></div>`);
+  const $=id=>document.getElementById(id);
+  const prev=()=>{const k=$("rMatch").value.trim().toLowerCase();const n=k?S.txns.filter(t=>(t.orig||t.payee).toLowerCase().includes(k)).length:0;
+    $("rPrev").innerHTML=k?`<span class="note">Matches <b>${n}</b> existing ${n===1?"transaction":"transactions"}.</span>`:""};
+  $("rMatch").oninput=prev;prev();
+  $("rSave").onclick=()=>{const match=$("rMatch").value.trim();if(match.length<2){toast("Enter at least 2 letters to match.");return}
+    const cat=readCat($("rCat"));if(cat===null)return;const rename=$("rName").value.trim();
+    if(!rename&&!cat){toast("Add a new name, a category, or both.");return}
+    const data={match,rename,cat};if(isNew)S.rules.push({id:uid(),...data});else Object.assign(r,data);
+    let n=0;const k=match.toLowerCase();
+    for(const t of S.txns)if((t.orig||t.payee).toLowerCase().includes(k)){
+      if(rename&&t.payee!==rename){if(!t.orig)t.orig=t.payee;t.payee=rename;n++}
+      if(cat&&!t.cat){t.cat=cat;n++}}
+    dlg.close();markDirty();render();toast(n?"Rule saved and applied to existing transactions":"Rule saved")};
+  const d=$("rDel");if(d)d.onclick=()=>{S.rules=S.rules.filter(x=>x.id!==r.id);dlg.close();markDirty();render();toast("Rule deleted")}}
+
+/* ---------- data screen ---------- */
 function renderData(){
   const m=document.getElementById("main");
   if(DESK){renderDataDesk(m);return}
@@ -875,7 +951,9 @@ function render(){refreshCatList();renderSide();renderSaveState();
   else S=loadLocal()||blank();
   S.recurring=S.recurring||[];
   const changed=ensureCats(),auto=runAutoRecurring();
+  S.rules=S.rules||[];
   if(changed||auto){if(DESK)deskSave();else persistLocal()}
+  snapshotBase();
   if(auto)setTimeout(()=>toast(`Entered ${auto} scheduled ${auto===1?"payment":"payments"}`),400);
   curAcct=S.accounts[0]?.id||null;render();})();
 </script>
