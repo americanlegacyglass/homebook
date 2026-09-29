@@ -1,6 +1,9 @@
 name: Build installers
 
 on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md"]
   workflow_dispatch:
     inputs:
       release:
@@ -10,6 +13,11 @@ on:
 
 permissions:
   contents: write
+
+# If you upload several files in a row, only the newest test build keeps running.
+concurrency:
+  group: build-${{ github.ref }}-${{ inputs.release && 'release' || 'test' }}
+  cancel-in-progress: ${{ !inputs.release }}
 
 jobs:
   build:
@@ -40,7 +48,21 @@ jobs:
       - name: Build Windows installer
         if: runner.os == 'Windows'
         shell: bash
-        run: npx electron-builder --win --publish ${{ inputs.release && 'always' || 'never' }} -c.publish.owner=${{ github.repository_owner }} -c.publish.repo=${{ github.event.repository.name }}
+        run: npx electron-builder --win --publish ${{ inputs.release && 'always' || 'never' }} -c.publish.owner=${{ github.repository_owner }} -c.publish.repo=${{ github.event.repository.name }} -c.publish.releaseType=draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The release stays a hidden draft until every file is uploaded, so a failed run can never break updates.
+      - name: Make the release public
+        if: runner.os == 'Windows' && inputs.release
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          ASSETS=$(gh release view "v$VERSION" --json assets --jq '.assets[].name')
+          echo "$ASSETS"
+          echo "$ASSETS" | grep -qx "latest.yml" || { echo "::error::latest.yml was not uploaded. The release was left as a draft."; exit 1; }
+          echo "$ASSETS" | grep -q "\.exe$" || { echo "::error::The installer was not uploaded. The release was left as a draft."; exit 1; }
+          gh release edit "v$VERSION" --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
