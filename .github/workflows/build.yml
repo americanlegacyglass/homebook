@@ -58,9 +58,17 @@ jobs:
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          echo "Files in dist:"; ls -la dist
           ASSETS=$(gh release view "v$VERSION" --json assets --jq '.assets[].name')
-          echo "$ASSETS"
-          echo "$ASSETS" | grep -qx "latest.yml" || { echo "::error::latest.yml was not uploaded. The release was left as a draft."; exit 1; }
+          echo "Files on the release:"; echo "$ASSETS"
+          if ! echo "$ASSETS" | grep -qx "latest.yml"; then
+            if [ -f dist/latest.yml ]; then
+              echo "latest.yml was built but not uploaded. Uploading it now."
+              gh release upload "v$VERSION" dist/latest.yml --clobber
+              ASSETS=$(gh release view "v$VERSION" --json assets --jq '.assets[].name')
+            fi
+          fi
+          echo "$ASSETS" | grep -qx "latest.yml" || { echo "::error::latest.yml is missing (it was never built). The release was left as a draft."; exit 1; }
           echo "$ASSETS" | grep -q "\.exe$" || { echo "::error::The installer was not uploaded. The release was left as a draft."; exit 1; }
           gh release edit "v$VERSION" --draft=false --latest
         env:
