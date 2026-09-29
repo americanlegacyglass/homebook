@@ -41,6 +41,7 @@ ipcMain.handle("hb:save", (_e, text) => {
   return { ok: true, at: Date.now() };
 });
 ipcMain.handle("hb:where", () => dataDir());
+ipcMain.handle("hb:version", () => app.getVersion());
 // Windows focus fix: after a pop-up closes, hand keyboard focus back to the app screen.
 ipcMain.handle("hb:refocus", e => {
   const w = BrowserWindow.fromWebContents(e.sender);
