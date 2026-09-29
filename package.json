@@ -1,7 +1,7 @@
 {
   "name": "homebook",
   "productName": "Homebook",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "A private checkbook that keeps your money on your computer",
   "main": "main.js",
   "scripts": {
