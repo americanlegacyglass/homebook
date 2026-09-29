@@ -5,5 +5,6 @@ contextBridge.exposeInMainWorld("homebookDesktop", {
   where: () => ipcRenderer.invoke("hb:where"),
   openFolder: () => ipcRenderer.invoke("hb:openFolder"),
   restore: () => ipcRenderer.invoke("hb:restore"),
-  refocus: () => ipcRenderer.invoke("hb:refocus")
+  refocus: () => ipcRenderer.invoke("hb:refocus"),
+  version: () => ipcRenderer.invoke("hb:version")
 });
