@@ -444,15 +444,20 @@ function enterRecurring(r){if(!r)return;if(!S.accounts.some(a=>a.id===r.acct)){t
 function runAutoRecurring(){let n=0;const t=today();
   for(const r of S.recurring||[]){let guard=0;while(r.auto&&r.next<=t&&guard++<60){enterRecurring(r);n++}}return n}
 function daysUntil(iso){return Math.round((new Date(iso+"T12:00")-new Date(today()+"T12:00"))/864e5)}
-function dueBadge(iso){const d=daysUntil(iso);
-  if(d<0)return`<span class="due late">${-d===1?"1 day":-d+" days"} late</span>`;
+function dueBadge(iso,incoming){const d=daysUntil(iso),n=x=>x===1?"1 day":x+" days";
+  if(incoming){
+    if(d<0)return`<span class="due late">Expected ${n(-d)} ago</span>`;
+    if(d===0)return`<span class="due soon">Expected today</span>`;
+    if(d<=7)return`<span class="due soon">Arrives in ${n(d)}</span>`;
+    return`<span class="due ok">${fmtDate(iso)}</span>`}
+  if(d<0)return`<span class="due late">${n(-d)} late</span>`;
   if(d===0)return`<span class="due soon">Due today</span>`;
-  if(d<=7)return`<span class="due soon">Due in ${d===1?"1 day":d+" days"}</span>`;
+  if(d<=7)return`<span class="due soon">Due in ${n(d)}</span>`;
   return`<span class="due ok">${fmtDate(iso)}</span>`}
 function recGroup(r){if(r.amt>0)return"Money coming in";if(catKind(r.cat)==="transfer")return"Transfers and savings";if(r.cat==="Subscriptions")return"Subscriptions";return"Bills and payments"}
 function upcomingStrip(acct){const list=(S.recurring||[]).filter(r=>r.acct===acct&&!r.auto&&daysUntil(r.next)<=7).sort((a,b)=>a.next<b.next?-1:1);
   if(!list.length)return"";
-  return`<div class="upcoming"><b>Coming up</b>${list.map(r=>`<span class="it">${esc(r.payee)} <span class="num">${money(Math.abs(r.amt))}</span> ${dueBadge(r.next)}<button data-up-enter="${r.id}">Enter</button></span>`).join("")}</div>`}
+  return`<div class="upcoming"><b>Coming up</b>${list.map(r=>`<span class="it">${esc(r.payee)} <span class="num">${money(Math.abs(r.amt))}</span> ${dueBadge(r.next,r.amt>0)}<button data-up-enter="${r.id}">Enter</button></span>`).join("")}</div>`}
 function renderRecurring(){
   const m=document.getElementById("main");const R=S.recurring||[];
   const monthlyOut=R.filter(r=>r.amt<0&&catKind(r.cat)!=="transfer").reduce((s,r)=>s-r.amt*PER_MONTH[r.freq],0);
@@ -470,7 +475,7 @@ function renderRecurring(){
     return`<div class="rec-group"><h2>${g}</h2><div class="panel" style="overflow:auto"><table><thead><tr><th>Name</th><th>Category</th><th>How often</th><th class="num">Amount</th><th>Next</th><th>Entered</th><th></th></tr></thead><tbody>
     ${list.map(r=>`<tr><td class="pay">${esc(r.payee)}<small>${esc(S.accounts.find(a=>a.id===r.acct)?.name||"No account")}</small></td>
       <td>${r.cat?`<span class="cat-pill">${esc(r.cat)}</span>`:""}</td><td>${FREQS[r.freq]}</td>
-      <td class="num ${r.amt>0?"in":""}">${money(Math.abs(r.amt))}</td><td>${dueBadge(r.next)}</td>
+      <td class="num ${r.amt>0?"in":""}">${money(Math.abs(r.amt))}</td><td>${dueBadge(r.next,r.amt>0)}</td>
       <td class="note">${r.auto?"Automatically":"When I click Enter"}</td>
       <td class="acts"><button data-enter="${r.id}">Enter now</button><button data-skip="${r.id}">Skip</button><button data-edit="${r.id}">Edit</button></td></tr>`).join("")}
     </tbody></table></div></div>`}).join(""):`<div class="panel empty"><b>No recurring payments yet</b>Add rent, utilities, phone, streaming services, paychecks, or a monthly transfer to savings.
