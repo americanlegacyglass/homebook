@@ -140,6 +140,7 @@ table.inv .ck{display:none}
 .bud-row .bar{height:16px;border-radius:8px}
 .bud-row .bar i{transition:width .2s}
 .bud-sub{padding-left:1.4rem;color:var(--muted)}
+.bar{position:relative}.bar u{position:absolute;top:0;bottom:0;width:2px;background:var(--ink);opacity:.6;text-decoration:none}
 .bud-row input{width:100%;text-align:right}
 .bud-row .rm{border:0;background:none;color:var(--muted);font-size:1.2rem;padding:0}
 .bud-row .rm:hover{color:var(--red)}
@@ -168,6 +169,7 @@ table.inv .ck{display:none}
       <a data-view="register" class="on">Register</a>
       <a data-view="recurring">Recurring</a>
       <a data-view="budget">Budget</a>
+      <a data-view="debt">Debt</a>
       <a data-view="reports">Spending</a>
       <a data-view="categories">Categories and rules</a>
       <a data-view="data">Save and backup</a>
@@ -191,16 +193,20 @@ const DEFAULT_CATS=[["Groceries","spend"],["Dining out","spend"],["Coffee","spen
 ["Subscriptions","spend"],["Travel","spend"],["Travel: Flights","spend",5],["Travel: Hotels","spend",5],["Travel: Rental car","spend",5],["Travel: Food","spend",5],["Travel: Activities","spend",5],["Travel: Souvenirs","spend",5],["Pets","spend"],["Gifts","spend"],["Church and charity","spend"],["Education","spend"],["Hobbies","spend"],
 ["Fitness","spend"],["Bank fees and interest","spend"],["Taxes","spend"],["Cash withdrawal","spend"],["Other","spend"],
 ["Paycheck","income"],["Social Security or pension","income"],["Refund","income"],["Interest earned","income"],["Other income","income"],
-["Transfer","transfer"],["Transfer to savings","transfer"],["Transfer from savings","transfer"],["Credit card payment","transfer"],["Loan payment","spend"],["Retirement savings","transfer"],["Savings","transfer"],["Investment contribution","transfer"],["Investment withdrawal","transfer"],["Market change","transfer"],["Dividends and interest","transfer"]];
+["Transfer","transfer"],["Transfer to savings","transfer"],["Transfer from savings","transfer"],["Credit card payment","transfer"],["Loan payment","spend"],["Retirement savings","transfer"],["Savings","transfer"],["Investment contribution","transfer"],["Investment withdrawal","transfer"],["Market change","transfer"],["Dividends and interest","transfer"],["Loan interest","spend",6],["Escrow (taxes and insurance)","spend",6],["Loan principal","transfer",6]];
 const PALETTE=["#1F77B4","#FF7F0E","#2CA02C","#D62728","#9467BD","#F2B701","#17BECF","#E377C2","#8C564B","#003F5C",
 "#BCBD22","#7F7F7F","#00A86B","#FF1493","#4B0082","#A0522D","#6FA8DC","#808000","#FFB3A7","#2F4F4F","#B8860B","#C71585","#5F9EA0","#8B0000"];
 let rankColors={};
 const ACCT_TYPES={checking:"Checking",savings:"Savings",credit:"Credit card",cash:"Cash",
-  roth:"Roth IRA",traditional:"Traditional IRA",k401:"401(k)",b403:"403(b)",brokerage:"Brokerage",hsa:"HSA",edu529:"529 college savings",invest:"Other investment"};
+  roth:"Roth IRA",traditional:"Traditional IRA",k401:"401(k)",b403:"403(b)",brokerage:"Brokerage",hsa:"HSA",edu529:"529 college savings",invest:"Other investment",mortgage:"Mortgage",auto:"Auto loan",student:"Student loan",personal:"Personal loan",loan:"Loan"};
 const INVEST=new Set(["roth","traditional","k401","b403","brokerage","hsa","edu529","invest"]);
 const isInv=a=>a&&INVEST.has(a.type);
+const LOAN=new Set(["mortgage","auto","student","personal","loan"]);
+const isLoan=a=>a&&LOAN.has(a.type);
+const isDebtType=t=>t==="credit"||LOAN.has(t);
+const isDebt=a=>a&&isDebtType(a.type);
 const acctOf=id=>S.accounts.find(a=>a.id===id);
-const CATS_VERSION=5;
+const CATS_VERSION=6;
 function ensureCats(){const v=S.catsVersion||1;if(v>=CATS_VERSION)return false;
   // only add categories introduced after this file's version, so ones she deleted don't come back
   for(const[name,kind,since]of DEFAULT_CATS){if((since||4)<=v&&v>=4)continue;
@@ -216,11 +222,12 @@ function renameCategory(old,nw){
   for(const[o,n]of map){const c=S.categories.find(x=>x.name===o);if(c)c.name=n;
     S.txns.forEach(t=>{if(t.cat===o)t.cat=n});for(const k in S.payeeMap)if(S.payeeMap[k]===o)S.payeeMap[k]=n;
     (S.recurring||[]).forEach(r=>{if(r.cat===o)r.cat=n});(S.rules||[]).forEach(r=>{if(r.cat===o)r.cat=n});
-    if(S.budgets&&o in S.budgets){S.budgets[n]=S.budgets[o];delete S.budgets[o]}}}
+    if(S.budgets&&o in S.budgets){S.budgets[n]=S.budgets[o];delete S.budgets[o]}
+    if(S.budgetPer&&o in S.budgetPer){S.budgetPer[n]=S.budgetPer[o];delete S.budgetPer[o]}}}
 function removeCategory(name){
   S.txns.forEach(t=>{if(t.cat===name)t.cat=""});(S.recurring||[]).forEach(r=>{if(r.cat===name)r.cat=""});
   (S.rules||[]).forEach(r=>{if(r.cat===name)r.cat=""});S.rules=(S.rules||[]).filter(r=>r.rename||r.cat);
-  for(const k in S.payeeMap)if(S.payeeMap[k]===name)delete S.payeeMap[k];if(S.budgets)delete S.budgets[name];S.categories=S.categories.filter(c=>c.name!==name)}
+  for(const k in S.payeeMap)if(S.payeeMap[k]===name)delete S.payeeMap[k];if(S.budgets)delete S.budgets[name];if(S.budgetPer)delete S.budgetPer[name];S.categories=S.categories.filter(c=>c.name!==name)}
 const DESK=window.homebookDesktop||null;let appVersion="";
 if(DESK&&DESK.refocus){ // Windows: restore typing after yes/no pop-ups
   const nativeConfirm=window.confirm.bind(window),nativeAlert=window.alert.bind(window);
@@ -229,14 +236,14 @@ if(DESK&&DESK.refocus){ // Windows: restore typing after yes/no pop-ups
 }let deskPath="",saveChain=Promise.resolve();
 let S=null, view="register", curAcct=null, fileHandle=null, dirty=false, lastSaved=null, filterMonth="", search="";
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-function blank(){return{app:"homebook",version:1,catsVersion:5,recurring:[],rules:[],budgets:{},accounts:[],categories:DEFAULT_CATS.map(([name,kind])=>({name,kind})),txns:[],payeeMap:{}}}
+function blank(){return{app:"homebook",version:1,catsVersion:6,recurring:[],rules:[],budgets:{},budgetPer:{},accounts:[],categories:DEFAULT_CATS.map(([name,kind])=>({name,kind})),txns:[],payeeMap:{}}}
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money=c=>{const n=(c||0)/100;return(n<0?"-":"")+"$"+Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
 const toCents=v=>{if(v===""||v==null)return 0;const n=parseFloat(String(v).replace(/[$,\s]/g,"").replace(/^\((.*)\)$/,"-$1"));return isNaN(n)?0:Math.round(n*100)};
 const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
 const fmtDate=d=>{if(!d)return"";const[y,m,dd]=d.split("-");return`${+m}/${+dd}/${y}`};
 const monthName=ym=>{const[y,m]=ym.split("-");return new Date(+y,+m-1,1).toLocaleString("en-US",{month:"long",year:"numeric"})};
-function toast(t){const el=document.getElementById("toast");const canUndo=undoStack.length&&Date.now()-lastUndoPush<1500;
+function toast(t){const el=document.getElementById("toast");const canUndo=undoStack.length&&Date.now()-lastUndoPush<400; // only toasts fired right after a change offer Undo
   el.innerHTML="";el.append(document.createTextNode(t));
   if(canUndo){const b=document.createElement("button");b.textContent="Undo";b.onclick=()=>{el.classList.remove("show");undo()};el.append(b)}
   el.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove("show"),canUndo?6000:2400)}
@@ -286,7 +293,7 @@ async function openFile(){
 }
 function loadData(txt,handle){
   try{const d=JSON.parse(txt);if(!d||d.app!=="homebook")throw 0;
-    S=d;S.payeeMap=S.payeeMap||{};S.recurring=S.recurring||[];S.budgets=S.budgets||{};S.rules=S.rules||[];ensureCats();undoStack=[];snapshotBase();fileHandle=handle||null;curAcct=S.accounts[0]?.id||null;dirty=false;lastSaved=new Date();
+    S=d;S.payeeMap=S.payeeMap||{};S.recurring=S.recurring||[];S.budgets=S.budgets||{};S.budgetPer=S.budgetPer||{};S.rules=S.rules||[];ensureCats();undoStack=[];snapshotBase();fileHandle=handle||null;curAcct=S.accounts[0]?.id||null;dirty=false;lastSaved=new Date();
     if(!DESK)persistLocal();render();toast("Opened your Homebook file")}
   catch(e){toast("That isn't a Homebook file.")}
 }
@@ -356,7 +363,7 @@ let seqN=0;const nextSeq=()=>Date.now()*10+(seqN++%10);
 function renderSide(){
   const el=document.getElementById("acctList");
   const btn=a=>{const b=balances(a.id).bal;return`<button class="acct ${a.id===curAcct&&view==="register"?"on":""}" data-id="${a.id}"><span>${esc(a.name)}</span><span class="num ${b<0?"neg":""}">${money(b)}</span></button>`};
-  const GROUPS=[["Checking",a=>a.type==="checking"],["Savings",a=>a.type==="savings"],["Credit cards",a=>a.type==="credit"],["Cash",a=>a.type==="cash"],["Investments",isInv]];
+  const GROUPS=[["Checking",a=>a.type==="checking"],["Savings",a=>a.type==="savings"],["Credit cards",a=>a.type==="credit"],["Loans and mortgages",isLoan],["Cash",a=>a.type==="cash"],["Investments",isInv]];
   const shown=new Set();let html="";
   for(const[label,fn]of GROUPS){const list=S.accounts.filter(fn);if(!list.length)continue;list.forEach(x=>shown.add(x.id));
     const sub=list.reduce((t,x)=>t+balances(x.id).bal,0);
@@ -405,23 +412,24 @@ function renderRegister(){
   <div class="head">
     <div><h1>${esc(a.name)}</h1><p class="sub">${ACCT_TYPES[a.type]||"Checking"}${isInv(a)?"":" account"}. <a href="#" id="editAcct" style="color:var(--sky)">Edit account</a></p></div>
     <div class="balance-strip">
-      <div><div class="bal-lbl">${isInv(a)?"Current value":"Balance today"}</div><div class="bal-main num ${bal<0?"neg":""}">${money(bal)}</div>${a.type==="credit"?`<div class="bal-lbl">${bal<0?"You owe "+money(-bal):bal===0?"Paid off":"Credit balance: the card company owes you "+money(bal)}</div>`:""}</div>
-      ${isInv(a)?invStats(a):`<div><div class="bal-lbl">Cleared with bank</div><div class="bal-2 num">${money(clr)}</div></div>`}
+      <div><div class="bal-lbl">${isInv(a)?"Current value":"Balance today"}</div><div class="bal-main num ${bal<0?"neg":""}">${money(bal)}</div>${isDebt(a)?`<div class="bal-lbl">${bal<0?"You owe "+money(-bal):bal===0?"Paid off":"Credit balance: the lender owes you "+money(bal)}</div>`:""}</div>
+      ${isInv(a)?invStats(a):isLoan(a)?loanStats(a):`<div><div class="bal-lbl">Cleared with bank</div><div class="bal-2 num">${money(clr)}</div></div>`}
     </div>
   </div>
-  ${a.type==="credit"&&bal>0?`<p class="warn" style="margin-bottom:1rem">This card shows a <b>positive</b> balance, meaning you've paid in more than you owe. If that isn't right, check that purchases are in the <b>Payment</b> column, payments to the card are in <b>Deposit</b>, and the starting balance is what you owed.</p>`:""}
+  ${isDebt(a)?debtLine(a):""}
+  ${isDebt(a)&&bal>0?`<p class="warn" style="margin-bottom:1rem">This account shows a <b>positive</b> balance, meaning you've paid in more than you owe. If that isn't right, check that charges are in the <b>Charge</b> column, payments are in the <b>Payment</b> column, and the starting balance is what you owed.</p>`:""}
   ${upcomingStrip(a.id)}
   <div class="toolbar">
     <input type="search" id="q" placeholder="Search payee, memo, amount" value="${esc(search)}" style="width:260px">
     <select id="fm"><option value="">All months</option>${months.map(x=>`<option value="${x}" ${x===filterMonth?"selected":""}>${monthName(x)}</option>`).join("")}</select>
     <span class="grow"></span>
     <button id="xferBtn">Transfer money</button>
-    ${isInv(a)?`<button id="impBtn">Import statement</button><button class="primary" id="valBtn">Update value</button>`:`<button id="impBtn">Import bank statement</button><button id="recBtn">Balance with statement</button>`}
+    ${isInv(a)?`<button id="impBtn">Import statement</button><button class="primary" id="valBtn">Update value</button>`:isLoan(a)?`<button class="primary" id="loanPayBtn">Record payment</button><button id="recBtn">Balance with statement</button>`:`<button id="impBtn">Import bank statement</button><button id="recBtn">Balance with statement</button>`}
   </div>
   <div class="panel" style="overflow:auto">
   <table class="${isInv(a)?"inv":""}">
     <thead><tr><th style="width:120px">Date</th><th class="ck" style="width:80px">Check #</th><th>Payee</th><th style="width:170px">Category</th>
-      <th class="num" style="width:120px">${isInv(a)?"Withdrawal":"Payment"}</th><th class="num" style="width:120px">${isInv(a)?"Contribution":"Deposit"}</th><th class="clr" title="Cleared">✓</th><th class="num" style="width:130px">Balance</th></tr></thead>
+      <th class="num" style="width:120px">${isInv(a)?"Withdrawal":isDebt(a)?"Charge":"Payment"}</th><th class="num" style="width:120px">${isInv(a)?"Contribution":isDebt(a)?"Payment":"Deposit"}</th><th class="clr" title="Cleared">✓</th><th class="num" style="width:130px">Balance</th></tr></thead>
     <tbody>
       <tr class="newrow">
         <td><input type="date" id="nDate" value="${today()}"></td>
@@ -451,6 +459,7 @@ function renderRegister(){
   if($("impBtn"))$("impBtn").onclick=()=>document.getElementById("fileImport").click();
   if($("recBtn"))$("recBtn").onclick=reconcileDialog;
   if($("valBtn"))$("valBtn").onclick=()=>valueDialog(a);
+  if($("loanPayBtn"))$("loanPayBtn").onclick=()=>loanPaymentDialog(a);
   $("xferBtn").onclick=()=>transferDialog(a.id);
   document.querySelectorAll("[data-up-enter]").forEach(b=>b.onclick=()=>{enterRecurring(S.recurring.find(r=>r.id===b.dataset.upEnter));markDirty();render();toast("Entered")});
   $("editAcct").onclick=e=>{e.preventDefault();accountDialog(a)};
@@ -484,23 +493,32 @@ function accountDialog(a){
   <div class="dlg-b"><div class="form">
     <label class="full">Account name<input id="aName" value="${esc(a.name)}" placeholder="Checking"></label>
     <label>Type<select id="aType"><optgroup label="Banking"><option value="checking">Checking</option><option value="savings">Savings</option><option value="credit">Credit card</option><option value="cash">Cash</option></optgroup>
+      <optgroup label="Loans and mortgages"><option value="mortgage">Mortgage</option><option value="auto">Auto loan</option><option value="student">Student loan</option><option value="personal">Personal loan</option><option value="loan">Other loan</option></optgroup>
       <optgroup label="Investments and retirement"><option value="roth">Roth IRA</option><option value="traditional">Traditional IRA</option><option value="k401">401(k)</option><option value="b403">403(b)</option><option value="brokerage">Brokerage</option><option value="hsa">HSA</option><option value="edu529">529 college savings</option><option value="invest">Other investment</option></optgroup></select></label>
     <label><span id="aOpenLbl">Starting balance</span><input id="aOpen" class="num" inputmode="decimal" value="${(shownVal/100).toFixed(2)}"></label>
+    <label id="aRateL">Interest rate (% per year)<input id="aRate" class="num" inputmode="decimal" value="${a.rate||""}" placeholder="6.5"></label>
+    <label id="aPayL"><span id="aPayLbl">Monthly payment</span><input id="aPay" class="num" inputmode="decimal" value="${a.pay?(a.pay/100).toFixed(2):""}" placeholder="0.00"></label>
+    <label id="aEscL" class="full">Escrow included in each payment (property tax and insurance)<input id="aEsc" class="num" inputmode="decimal" value="${a.escrow?(a.escrow/100).toFixed(2):""}" placeholder="0.00"></label>
     <p class="note full" id="aNote" style="grid-column:1/-1;margin:0"></p>
   </div></div>
   <div class="dlg-f">${isNew?"":`<button class="danger" id="aDel">Delete account</button>`}<span class="grow"></span><button data-close>Cancel</button><button class="primary" id="aSave">${isNew?"Add account":"Save"}</button></div>`);
   document.getElementById("aType").value=a.type;
-  const syncType=()=>{const t=document.getElementById("aType").value,cr=t==="credit",inv=INVEST.has(t),f=document.getElementById("aOpen");
+  const syncType=()=>{const t=document.getElementById("aType").value,cr=isDebtType(t),inv=INVEST.has(t),f=document.getElementById("aOpen");
     if(cr!==shownCredit){const v=toCents(f.value);if(f.value.trim()!=="")f.value=(-v/100).toFixed(2);shownCredit=cr} // keep the same stored balance when the type changes
     document.getElementById("aOpenLbl").textContent=cr?"Amount you owe now":inv?"Current value":"Starting balance";
-    document.getElementById("aNote").textContent=cr?"Enter what you owe right now as a positive number, like 500.00. Homebook shows it as a negative balance. If the card has a credit balance (you overpaid), enter it as a negative number."
-      :inv?"Enter its current value from your latest statement.":"Use the balance from before your first transaction."};
+    document.getElementById("aNote").textContent=cr?"Enter what you owe right now as a positive number, like 500.00. Homebook shows it as a negative balance. If you overpaid and have a credit balance, enter it as a negative number."
+      :inv?"Enter its current value from your latest statement.":"Use the balance from before your first transaction.";
+    ["aRateL","aPayL"].forEach(i=>document.getElementById(i).style.display=cr?"":"none");document.getElementById("aEscL").style.display=t==="mortgage"?"":"none";
+    document.getElementById("aPayLbl").textContent=t==="credit"?"Planned monthly payment":"Monthly payment"};
   document.getElementById("aType").onchange=syncType;syncType();
   document.getElementById("aSave").onclick=()=>{
     const name=document.getElementById("aName").value.trim();if(!name){toast("Give the account a name.");return}
-    const type=document.getElementById("aType").value,raw=toCents(document.getElementById("aOpen").value),opening=type==="credit"?-raw:raw;
-    if(isNew){a={id:uid(),name,type,opening};S.accounts.push(a);curAcct=a.id;view="register"}
-    else{a.name=name;a.type=type;a.opening=opening}
+    const type=document.getElementById("aType").value,raw=toCents(document.getElementById("aOpen").value),opening=isDebtType(type)?-raw:raw;
+    const rateRaw=document.getElementById("aRate").value.trim(),rate=rateRaw===""?0:parseFloat(rateRaw.replace(/[%\s]/g,""));
+    if(isDebtType(type)&&(isNaN(rate)||rate<0||rate>100)){toast("Enter the interest rate as a yearly percent, like 6.5.");return}
+    const extra=isDebtType(type)?{rate:rate||0,pay:Math.abs(toCents(document.getElementById("aPay").value)),escrow:type==="mortgage"?Math.abs(toCents(document.getElementById("aEsc").value)):0}:{};
+    if(isNew){a={id:uid(),name,type,opening,...extra};S.accounts.push(a);curAcct=a.id;view="register"}
+    else{a.name=name;a.type=type;a.opening=opening;delete a.rate;delete a.pay;delete a.escrow;Object.assign(a,extra)}
     dlg.close();markDirty();render()};
   const d=document.getElementById("aDel");
   if(d)d.onclick=()=>{const n=acctTx(a.id).length;if(!confirm(`Delete "${a.name}" and its ${n} transactions? This can't be undone.`))return;
@@ -622,7 +640,8 @@ function recurringDialog(r,preset){
   $("pCat").addEventListener("change",autoTo);
   $("pSave").onclick=()=>{const payee=$("pPayee").value.trim(),amt=Math.abs(toCents($("pAmt").value));
     if(!payee){toast("Enter a name.");return}if(!amt){toast("Enter an amount.");return}
-    const pc=readCat($("pCat"));if(pc===null)return;if(!$("pNext").value){toast("Pick the next date.");return}
+    const pc=readCat($("pCat"));if(pc===null)return;
+    if(pc==="Loan principal"){toast("To split a loan payment into principal and interest, use Record payment on the loan.");return}if(!$("pNext").value){toast("Pick the next date.");return}
     const data={payee,amt:$("pDir").value==="out"?-amt:amt,cat:pc,acct:$("pAcct").value,freq:$("pFreq").value,next:$("pNext").value,
       day:+$("pNext").value.slice(8),auto:$("pAuto").value==="1",memo:$("pMemo").value.trim(),toAcct:($("pTo").value&&$("pTo").value!==$("pAcct").value)?$("pTo").value:""};
     if(isNew)S.recurring.push({id:uid(),...data});else Object.assign(r,data);
@@ -634,6 +653,7 @@ function recurringDialog(r,preset){
 
 /* ---------- investments and transfers ---------- */
 function linkCats(A,B){ // categories for money moving from account A to account B
+  if(isLoan(A)||isLoan(B))return["Loan principal","Loan principal"];
   const out=isInv(B)?"Investment contribution":B.type==="savings"?"Transfer to savings":B.type==="credit"?"Credit card payment":"Transfer";
   const inn=isInv(A)?"Investment withdrawal":A.type==="savings"?"Transfer from savings":isInv(B)?"Investment contribution":"Transfer";
   return[out,inn]}
@@ -642,6 +662,7 @@ function guessTarget(t){const others=S.accounts.filter(a=>a.id!==t.acct);if(!oth
   if(/invest|retire/.test(c))return pick(isInv)||others[0];
   if(/saving/.test(c))return pick(a=>a.type==="savings")||others[0];
   if(/credit card/.test(c))return pick(a=>a.type==="credit")||others[0];
+  if(/loan/.test(c))return pick(isLoan)||others[0];
   return others[0]}
 function makePartner(t,toId,xid){const A=acctOf(t.acct),B=acctOf(toId);
   const[outCat,inCat]=t.amt<0?linkCats(A,B):linkCats(B,A);
@@ -691,11 +712,91 @@ function transferDialog(fromId){
   $("tGo").onclick=()=>{const f=$("tFrom").value,to=$("tTo").value,amt=Math.abs(toCents($("tAmt").value));
     if(f===to){toast("Pick two different accounts.");return}if(!amt){toast("Enter an amount.");return}
     const A=acctOf(f),B=acctOf(to),x=uid(),d=$("tDate").value||today(),memo=$("tMemo").value.trim();
-    const catOut=isInv(B)?"Investment contribution":B.type==="savings"?"Transfer to savings":B.type==="credit"?"Credit card payment":"Transfer";
-    const catIn=isInv(A)?"Investment withdrawal":A.type==="savings"?"Transfer from savings":isInv(B)?"Investment contribution":"Transfer";
+    const[catOut,catIn]=linkCats(A,B);
     S.txns.push({id:uid(),seq:nextSeq(),acct:f,date:d,num:"",payee:"Transfer to "+B.name,memo,cat:catOut,amt:-amt,status:"",xfer:x},
                 {id:uid(),seq:nextSeq(),acct:to,date:d,num:"",payee:"Transfer from "+A.name,memo,cat:catIn,amt,status:"",xfer:x});
     dlg.close();markDirty();render();toast(`Moved ${money(amt)} to ${B.name}`)}}
+
+/* ---------- debt and loans ---------- */
+function monthYear(n){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+n);return d.toLocaleString("en-US",{month:"short",year:"numeric"})}
+function payoffPlan(a){const owed=-balances(a.id).bal;if(owed<=0)return{done:true};
+  const pay=(a.pay||0)-(a.escrow||0);if(!(pay>0))return null;
+  const r=(a.rate||0)/1200;let b=owed,m=0,interest=0;
+  if(r>0&&pay<=Math.round(b*r))return{never:true};
+  while(b>0&&m<1200){const i=Math.round(b*r);interest+=i;b=b+i-pay;m++}
+  if(b>0)return{never:true};
+  return{months:m,interest,when:monthYear(m),pay}}
+function debtLine(a){const pl=payoffPlan(a);
+  if(pl&&pl.done)return"";
+  if(pl===null)return isLoan(a)?`<p class="note" style="margin:-.3rem 0 1rem">Add a monthly payment in Edit account to see a payoff date.</p>`:"";
+  if(pl.never)return`<p class="note" style="margin:-.3rem 0 1rem;color:var(--red)">The monthly payment doesn't cover the interest, so this won't pay off.</p>`;
+  return`<p class="note" style="margin:-.3rem 0 1rem">Paid off around <b>${pl.when}</b> at ${money(pl.pay)}/mo toward principal and interest. About ${money(pl.interest)} interest to go.</p>`}
+function loanStats(a){const y=today().slice(0,4);
+  const paid=acctTx(a.id).filter(t=>t.date.startsWith(y)&&t.amt>0).reduce((t,x)=>t+x.amt,0);
+  return`<div><div class="bal-lbl">Paid down in ${y}</div><div class="bal-2 num in">${money(paid)}</div></div>`+(a.rate?`<div><div class="bal-lbl">Interest rate</div><div class="bal-2">${a.rate}%</div></div>`:"")}
+function dayDiff(a,b){return Math.round((new Date(a+"T12:00")-new Date(b+"T12:00"))/864e5)}
+function loanPaymentDialog(loan){
+  const src=S.accounts.filter(x=>!isDebt(x)&&!isInv(x));
+  if(!src.length){toast("Add a checking account to pay from first.");return}
+  const owed=Math.max(0,-balances(loan.id).bal),estInt=loan.rate?Math.round(owed*loan.rate/1200):0;
+  const defFrom=(src.find(x=>x.type==="checking")||src[0]).id,hasEsc=loan.type==="mortgage"||loan.escrow>0;
+  let useMatch=true;
+  openDlg(`<div class="dlg-h"><h2>Record a payment on ${esc(loan.name)}</h2><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="dlg-b"><div class="form">
+    <label>Paid from<select id="lpFrom">${src.map(x=>`<option value="${x.id}" ${x.id===defFrom?"selected":""}>${esc(x.name)}</option>`).join("")}</select></label>
+    <label>Date<input type="date" id="lpDate" value="${today()}"></label>
+    <label>Total payment<input id="lpTotal" class="num" inputmode="decimal" value="${loan.pay?(loan.pay/100).toFixed(2):""}" placeholder="0.00"></label>
+    <label>Interest<input id="lpInt" class="num" inputmode="decimal" value="${estInt?(estInt/100).toFixed(2):""}" placeholder="0.00"></label>
+    ${hasEsc?`<label class="full">Escrow (property tax and insurance)<input id="lpEsc" class="num" inputmode="decimal" value="${loan.escrow?(loan.escrow/100).toFixed(2):""}" placeholder="0.00"></label>`:""}
+  </div>
+  <div id="lpMatch" style="margin-top:.8rem"></div><p id="lpPrev" style="margin:.8rem 0 0"></p>
+  <p class="note">Interest is estimated from your rate. If your statement shows the exact amounts, type those instead. Principal is what's left after interest${hasEsc?" and escrow":""}.</p></div>
+  <div class="dlg-f"><button data-close>Cancel</button><button class="primary" id="lpGo">Record payment</button></div>`);
+  const $=id=>document.getElementById(id);
+  const vals=()=>{const total=Math.abs(toCents($("lpTotal").value)),int=Math.abs(toCents($("lpInt").value)),escr=$("lpEsc")?Math.abs(toCents($("lpEsc").value)):0;return{total,int,escr,principal:total-int-escr}};
+  const findMatch=()=>{const{total}=vals(),date=$("lpDate").value;if(!total)return null;const ids=src.map(x=>x.id);
+    return S.txns.filter(t=>ids.includes(t.acct)&&t.amt===-total&&!t.xfer&&t.status!=="r"&&t.cat!=="Loan interest"&&Math.abs(dayDiff(t.date,date))<=5)
+      .sort((a,b)=>Math.abs(dayDiff(a.date,date))-Math.abs(dayDiff(b.date,date)))[0]||null};
+  const refresh=()=>{const v=vals(),m=findMatch();
+    $("lpMatch").innerHTML=m?`<label style="display:flex;gap:.6rem;align-items:flex-start;background:var(--amber-bg);padding:.6rem .8rem;border-radius:var(--radius-s)"><input type="checkbox" id="lpUse" ${useMatch?"checked":""} style="margin-top:.25rem">
+      <span>A ${money(v.total)} payment on ${fmtDate(m.date)} (${esc(m.payee)}) is already in ${esc(acctOf(m.acct).name)}. Use it instead of adding a new one, so the payment isn't counted twice.</span></label>`:"";
+    if($("lpUse"))$("lpUse").onchange=e=>{useMatch=e.target.checked};
+    $("lpPrev").innerHTML=!v.total?"":v.principal<=0?`<span class="neg">The payment has to be more than the interest${hasEsc?" and escrow":""}.</span>`
+      :`Principal <b>${money(v.principal)}</b>. You'll owe <b>${money(owed-v.principal)}</b> after this payment.${v.principal>owed?` <span class="neg">That's more than the ${money(owed)} you owe.</span>`:""}`};
+  ["lpFrom","lpDate","lpTotal","lpInt","lpEsc"].forEach(id=>{if($(id))$(id).oninput=refresh});refresh();
+  $("lpGo").onclick=()=>{const v=vals();
+    if(!v.total){toast("Enter the total payment.");return}
+    if(v.principal<=0){toast(`The payment has to be more than the interest${hasEsc?" and escrow":""}.`);return}
+    const match=useMatch?findMatch():null,x=uid();let base;
+    if(match){base=match;if(!base.orig)base.orig=base.payee;base.payee="Payment to "+loan.name;base.cat="Loan principal";base.amt=-v.principal;base.xfer=x}
+    else{base={id:uid(),seq:nextSeq(),acct:$("lpFrom").value,date:$("lpDate").value||today(),num:"",payee:"Payment to "+loan.name,memo:"",cat:"Loan principal",amt:-v.principal,status:"",xfer:x};S.txns.push(base)}
+    const st=(base.status==="c"||base.status==="r")?"c":"";
+    const add=(acct,payee,cat,amt,status,xf)=>S.txns.push({id:uid(),seq:nextSeq(),acct,date:base.date,num:"",payee,memo:"",cat,amt,status,...(xf?{xfer:xf}:{})});
+    add(loan.id,"Payment from "+acctOf(base.acct).name,"Loan principal",v.principal,"",x);
+    if(v.int>0)add(base.acct,"Interest on "+loan.name,"Loan interest",-v.int,st);
+    if(v.escr>0)add(base.acct,"Escrow for "+loan.name,"Escrow (taxes and insurance)",-v.escr,st);
+    dlg.close();markDirty();render();toast(`Recorded. You now owe ${money(Math.max(0,-balances(loan.id).bal))}.`)}}
+function renderDebt(){
+  const m=document.getElementById("main"),list=S.accounts.filter(isDebt);
+  if(!list.length){m.innerHTML=`<div class="head"><div><h1>Debt</h1><p class="sub">Credit cards, mortgages and loans in one place.</p></div></div>
+    <div class="panel empty"><b>No debts added</b>Add a credit card, mortgage, or loan as an account to track what you owe and when you'll be done.<br><br><button class="primary" id="dAdd">Add account</button></div>`;
+    document.getElementById("dAdd").onclick=()=>accountDialog();return}
+  const rows=list.map(a=>({a,owed:Math.max(0,-balances(a.id).bal),plan:payoffPlan(a)}));
+  const totOwed=rows.reduce((t,r)=>t+r.owed,0),totPay=rows.filter(r=>r.owed>0).reduce((t,r)=>t+(r.a.pay||0),0);
+  const owing=rows.filter(r=>r.owed>0),allPlans=owing.length>0&&owing.every(r=>r.plan&&r.plan.months);
+  const free=allPlans?monthYear(Math.max(...owing.map(r=>r.plan.months))):null,intLeft=owing.reduce((t,r)=>t+((r.plan&&r.plan.interest)||0),0);
+  m.innerHTML=`<div class="head"><div><h1>Debt</h1><p class="sub">Everything you owe, with payoff estimates. Add each account's rate and monthly payment with Edit account.</p></div><button class="primary" id="dAdd">Add account</button></div>
+  <div class="stat-row"><div class="stat"><span>Total owed</span><b class="num neg" style="text-align:left">${money(totOwed)}</b></div>
+    <div class="stat"><span>Monthly payments</span><b class="num" style="text-align:left">${money(totPay)}</b></div>
+    <div class="stat"><span>Debt-free around</span><b style="text-align:left">${owing.length?(free||"Add rates and payments"):"Debt-free"}</b></div>
+    ${allPlans?`<div class="stat"><span>Interest still to pay</span><b class="num" style="text-align:left">${money(intLeft)}</b></div>`:""}</div>
+  <div class="panel" style="overflow:auto"><table><thead><tr><th>Account</th><th>Type</th><th class="num">Owed</th><th class="num">Rate</th><th class="num">Monthly payment</th><th>Paid off</th><th class="num">Interest to go</th></tr></thead><tbody>
+  ${rows.map(r=>{const pl=r.plan;return`<tr class="tx" data-acct="${r.a.id}"><td class="pay">${esc(r.a.name)}</td><td>${ACCT_TYPES[r.a.type]}</td>
+    <td class="num ${r.owed>0?"neg":""}">${money(r.owed)}</td><td class="num">${r.a.rate?r.a.rate+"%":"&ndash;"}</td><td class="num">${r.a.pay?money(r.a.pay):"&ndash;"}</td>
+    <td>${r.owed===0?"Paid off":pl&&pl.never?`<span class="neg">Payment too low</span>`:pl&&pl.when?pl.when:"&ndash;"}</td><td class="num">${pl&&pl.interest!=null?money(pl.interest):"&ndash;"}</td></tr>`}).join("")}
+  </tbody></table></div><p class="note">Click an account to open it. Estimates assume you keep paying the same amount each month and the rate doesn't change, so treat them as a guide.</p>`;
+  document.getElementById("dAdd").onclick=()=>accountDialog();
+  m.querySelectorAll("tr.tx").forEach(tr=>tr.onclick=()=>{curAcct=tr.dataset.acct;view="register";render()})}
 
 /* ---------- reconcile ---------- */
 function reconcileDialog(){
@@ -707,7 +808,7 @@ function reconcileDialog(){
   <div class="dlg-b">
     <div class="form" style="margin-bottom:1rem">
       <label>Statement ending date<input type="date" id="rDate" value="${today()}"></label>
-      <label>${a.type==="credit"?"Amount you owe on the statement":"Statement ending balance"}<input id="rBal" class="num" inputmode="decimal" placeholder="0.00"></label>
+      <label>${isDebt(a)?"Amount you owe on the statement":"Statement ending balance"}<input id="rBal" class="num" inputmode="decimal" placeholder="0.00"></label>
     </div>
     <div class="rec-sum"><div><span class="note">Last reconciled balance</span><b class="num" style="text-align:left">${money(startBal)}</b></div>
       <div><span class="note">Checked items total</span><b id="rClr" class="num" style="text-align:left"></b></div>
@@ -726,7 +827,7 @@ function reconcileDialog(){
   const inRange=t=>{const end=$("rDate").value;return!end||t.date<=end};
   const calc=()=>{const clr=startBal+open.filter(t=>picked.has(t.id)&&inRange(t)).reduce((s,t)=>s+t.amt,0);$("rClr").textContent=money(clr);
     const bv=$("rBal").value.trim();if(!bv){$("rDiff").textContent="Enter balance";$("rDiffBox").className="";$("rDone").disabled=true;return}
-    const diff=clr-(a.type==="credit"?-toCents(bv):toCents(bv));$("rDiff").textContent=money(diff);$("rDiffBox").className=diff===0?"ok":"bad";$("rDone").disabled=diff!==0;
+    const diff=clr-(isDebt(a)?-toCents(bv):toCents(bv));$("rDiff").textContent=money(diff);$("rDiffBox").className=diff===0?"ok":"bad";$("rDone").disabled=diff!==0;
     $("rMsg").textContent=diff===0?"Balanced. Click Finish to lock these in.":""};
   $("rBal").oninput=calc;$("rDate").onchange=draw;draw();
   $("rDone").onclick=()=>{let n=0;for(const t of open){if(!inRange(t))continue;if(picked.has(t.id)){t.status="r";n++}else if(t.status==="c")t.status=""}
@@ -787,7 +888,7 @@ function csvMapDialog(rows,fname){
   const find=(...ks)=>low.findIndex(x=>ks.some(k=>x.includes(k)));
   const g={date:find("date"),desc:find("description","payee","name","merchant","memo"),amt:find("amount"),out:find("debit","withdraw","payment"),inn:find("credit","deposit"),num:find("check")};
   const tgt=acctOf(curAcct);let autoFlip=false;
-  if(tgt&&tgt.type==="credit"&&g.amt>=0&&!(g.out>=0&&g.inn>=0)){let pos=0,neg=0;for(const r of rows.slice(1)){const v=toCents(r[g.amt]);if(v>0)pos++;else if(v<0)neg++}autoFlip=pos>neg}
+  if(tgt&&isDebt(tgt)&&g.amt>=0&&!(g.out>=0&&g.inn>=0)){let pos=0,neg=0;for(const r of rows.slice(1)){const v=toCents(r[g.amt]);if(v>0)pos++;else if(v<0)neg++}autoFlip=pos>neg}
   const opts=sel=>`<option value="-1">Not in file</option>`+h.map((x,i)=>`<option value="${i}" ${i===sel?"selected":""}>${esc(x||"Column "+(i+1))}</option>`).join("");
   openDlg(`<div class="dlg-h"><h2>Match the columns</h2><button class="x" data-close aria-label="Close">×</button></div>
   <div class="dlg-b"><p class="note" style="margin-top:0">Tell Homebook which column in <b>${esc(fname)}</b> holds each piece of information.</p>
@@ -916,52 +1017,70 @@ function monthSpend(ym){ // net spending per category for a month, same rules as
   return out}
 function spentFor(name,spend){let v=0;for(const c in spend)if(c===name||parentOf(c)===name)v+=spend[c];return v}
 function renderBudget(){
-  const m=document.getElementById("main");S.budgets=S.budgets||{};
+  const m=document.getElementById("main");S.budgets=S.budgets||{};S.budgetPer=S.budgetPer||{};
   const ym=filterMonth&&/^\d{4}-\d{2}$/.test(filterMonth)?filterMonth:today().slice(0,7);filterMonth=ym;
   const[y,mo]=ym.split("-").map(Number);const shift=n=>{const d=new Date(y,mo-1+n,1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")};
-  const spend=monthSpend(ym);
+  const spendM=monthSpend(ym),spendY=monthSpend(String(y)); // monthSpend matches by date prefix, so a year works too
+  const yearly=n=>S.budgetPer[n]==="year";
   const names=S.categories.map(c=>c.name).filter(n=>n in S.budgets);
-  const rows=names.map(n=>{const b=S.budgets[n],sp=Math.max(0,spentFor(n,spend));return{n,b,sp,left:b-sp,pct:b?sp/b:0}});
-  const topRows=rows.filter(r=>!parentOf(r.n)||!(parentOf(r.n)in S.budgets));
-  const totB=topRows.reduce((s,r)=>s+r.b,0),totS=topRows.reduce((s,r)=>s+r.sp,0);
+  const mk=(n,spend)=>{const b=S.budgets[n],sp=Math.max(0,spentFor(n,spend));return{n,b,sp,left:b-sp,pct:b?sp/b:0}};
+  const mRows=names.filter(n=>!yearly(n)).map(n=>mk(n,spendM)),yRows=names.filter(yearly).map(n=>mk(n,spendY));
+  const top=(rows,per)=>rows.filter(r=>{const p=parentOf(r.n);return!(p&&p in S.budgets&&yearly(p)===per)}); // a sub-budget inside a same-period parent isn't counted twice
+  const sum=(rows,k)=>rows.reduce((t,r)=>t+r[k],0);
+  const mTop=top(mRows,false),yTop=top(yRows,true);
+  const totB=sum(mTop,"b"),totS=sum(mTop,"sp"),yB=sum(yTop,"b"),yS=sum(yTop,"sp");
   const covered=c=>names.some(n=>c===n||parentOf(c)===n);
-  const unbudgeted=Object.entries(spend).filter(([c,v])=>v>0&&!covered(c)).reduce((s,[,v])=>s+v,0);
-  const isNow=ym===today().slice(0,7),daysIn=new Date(y,mo,0).getDate(),daysLeft=isNow?daysIn-new Date().getDate()+1:0;
-  const color=p=>p>1?"var(--red)":p>=.8?"#E0A100":"var(--saguaro)";
-  m.innerHTML=`<div class="head"><div><h1>Budget</h1><p class="sub">Set a monthly amount for the categories you want to watch. The same budget carries over every month.</p></div>
+  const unbudgeted=Object.entries(spendM).filter(([c,v])=>v>0&&!covered(c)).reduce((t,[,v])=>t+v,0);
+  const now=new Date(),curY=now.getFullYear(),isCurYear=y===curY,isNow=ym===today().slice(0,7);
+  const daysIn=new Date(y,mo,0).getDate(),daysLeft=isNow?daysIn-now.getDate()+1:0;
+  const dayOfYear=Math.floor((now-new Date(curY,0,0))/864e5),daysInYear=(new Date(curY,1,29).getMonth()===1)?366:365;
+  const elapsed=y<curY?1:y>curY?0:dayOfYear/daysInYear,monthsLeft=y<curY?0:y>curY?12:12-now.getMonth();
+  const colorM=p=>p>1?"var(--red)":p>=.8?"#E0A100":"var(--saguaro)";
+  const colorY=p=>p>1?"var(--red)":p>elapsed+.1?"#E0A100":"var(--saguaro)";
+  const head=per=>`<div class="bud-row head"><span>Category</span><span class="num">${per?"Yearly":"Monthly"} budget</span><span></span><span class="num">Spent</span><span class="num lft">Left</span><span></span></div>`;
+  const rowHtml=(r,per)=>{const p=parentOf(r.n),ind=!!(p&&p in S.budgets&&yearly(p)===per),col=per?colorY(r.pct):colorM(r.pct);
+    const perMo=per&&isCurYear&&r.left>0&&monthsLeft>0?`<br><small class="note">about ${money(Math.floor(r.left/monthsLeft))}/mo</small>`:"";
+    return`<div class="bud-row"><span class="${ind?"bud-sub":""}">${esc(ind?"↳ "+subOf(r.n):r.n)}</span>
+      <input class="num" inputmode="decimal" data-b="${esc(r.n)}" value="${(r.b/100).toFixed(2)}" aria-label="${per?"Yearly":"Monthly"} budget for ${esc(r.n)}">
+      <div class="bar" title="${Math.round(r.pct*100)}% used">${per&&isCurYear?`<u style="left:${(elapsed*100).toFixed(1)}%" title="Where you would be if you spent evenly through the year"></u>`:""}<i style="width:${Math.min(100,r.pct*100)}%;background:${col}"></i></div>
+      <span class="num">${money(r.sp)}<br><small class="note">${Math.round(r.pct*100)}%</small></span>
+      <span class="num lft ${r.left<0?"neg":""}">${r.left<0?"Over "+money(-r.left):money(r.left)}${perMo}</span>
+      <button class="rm" data-brm="${esc(r.n)}" title="Stop budgeting ${esc(r.n)}" aria-label="Remove">×</button></div>`};
+  const yTotal=yB-yS<0?`Over by ${money(yS-yB)}`:`${money(yB-yS)} left`;
+  m.innerHTML=`<div class="head"><div><h1>Budget</h1><p class="sub">Give a category a monthly or a yearly amount. Monthly budgets repeat every month; yearly budgets run January to December.</p></div>
     <div style="display:flex;gap:.5rem;align-items:center"><button id="bPrev" aria-label="Previous month">‹</button><b style="min-width:10rem;text-align:center">${monthName(ym)}</b><button id="bNext" aria-label="Next month">›</button></div></div>
-  ${rows.length?`<div class="stat-row">
-    <div class="stat"><span>Budgeted</span><b class="num" style="text-align:left">${money(totB)}</b></div>
+  ${mRows.length?`<div class="stat-row">
+    <div class="stat"><span>Monthly budgets</span><b class="num" style="text-align:left">${money(totB)}</b></div>
     <div class="stat"><span>Spent</span><b class="num" style="text-align:left">${money(totS)}</b></div>
     <div class="stat"><span>${totB-totS<0?"Over budget":"Left to spend"}</span><b class="num ${totB-totS<0?"neg":"in"}" style="text-align:left">${money(Math.abs(totB-totS))}</b></div>
     ${isNow&&totB-totS>0?`<div class="stat"><span>About per day, ${daysLeft} ${daysLeft===1?"day":"days"} left</span><b class="num" style="text-align:left">${money(Math.floor((totB-totS)/daysLeft))}</b></div>`:""}
   </div>`:""}
-  <div class="panel pad">
-    ${rows.length?`<div class="bud-row head"><span>Category</span><span class="num">Monthly budget</span><span></span><span class="num">Spent</span><span class="num lft">Left</span><span></span></div>
-    ${rows.map(r=>`<div class="bud-row"><span class="${parentOf(r.n)?"bud-sub":""}">${esc(parentOf(r.n)&&parentOf(r.n)in S.budgets?"↳ "+subOf(r.n):r.n)}</span>
-      <input class="num" inputmode="decimal" data-b="${esc(r.n)}" value="${(r.b/100).toFixed(2)}" aria-label="Budget for ${esc(r.n)}">
-      <div class="bar" title="${Math.round(r.pct*100)}% used"><i style="width:${Math.min(100,r.pct*100)}%;background:${color(r.pct)}"></i></div>
-      <span class="num">${money(r.sp)}<br><small class="note">${Math.round(r.pct*100)}%</small></span>
-      <span class="num lft ${r.left<0?"neg":""}">${r.left<0?"Over "+money(-r.left):money(r.left)}</span>
-      <button class="rm" data-brm="${esc(r.n)}" title="Stop budgeting ${esc(r.n)}" aria-label="Remove">×</button></div>`).join("")}`
-    :`<div class="empty"><b>No budgets yet</b>Pick a category below, like Groceries or Dining out, and give it a monthly amount.</div>`}
-    <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:1rem">
-      ${catInput('id="bCat" style="width:220px"',"")}<input id="bAmt" class="num" inputmode="decimal" placeholder="Monthly amount" style="width:150px">
+  ${mRows.length?`<div class="panel pad" style="margin-bottom:1.2rem"><h2 style="margin-bottom:.2rem">Monthly budgets, ${monthName(ym)}</h2>${head(false)}${mRows.map(r=>rowHtml(r,false)).join("")}</div>`:""}
+  ${yRows.length?`<div class="panel pad" style="margin-bottom:1.2rem"><h2 style="margin-bottom:.2rem">Yearly budgets, ${y}</h2>
+    <p class="note" style="margin-top:0">Budgeted ${money(yB)} · Spent ${money(yS)} · ${yTotal}.${isCurYear?" The tick on each bar shows where you would be if you spent evenly through the year.":""}</p>${head(true)}${yRows.map(r=>rowHtml(r,true)).join("")}</div>`:""}
+  ${names.length?"":`<div class="panel empty" style="margin-bottom:1.2rem"><b>No budgets yet</b>Pick a category below, like Groceries, and give it an amount per month. For things that come once a year, like insurance, gifts or travel, choose per year.</div>`}
+  <div class="panel pad"><h2 style="margin-bottom:.6rem">Add a budget</h2>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center">
+      ${catInput('id="bCat" style="width:220px"',"")}<input id="bAmt" class="num" inputmode="decimal" placeholder="Amount" style="width:150px">
+      <select id="bPer" aria-label="How often"><option value="month">per month</option><option value="year">per year</option></select>
       <button class="primary" id="bAdd">Add to budget</button><span class="grow"></span>
-      <button id="bSuggest" title="Uses the average of the last 3 months">Suggest amounts from past spending</button></div>
+      <button id="bSuggest" title="Uses the average of the last 3 months">Suggest monthly amounts from past spending</button></div>
     ${unbudgeted>0?`<p class="note" style="margin-bottom:0">Also spent ${money(unbudgeted)} this month in categories without a budget.</p>`:""}
   </div>`;
   const $=id=>document.getElementById(id);
   $("bPrev").onclick=()=>{filterMonth=shift(-1);renderBudget()};$("bNext").onclick=()=>{filterMonth=shift(1);renderBudget()};
   const add=()=>{const c=readCat($("bCat"));if(c===null)return;if(!c){toast("Pick a category.");return}
     if(catKind(c)!=="spend"){toast("Budgets are for spending categories.");return}
-    const a=Math.abs(toCents($("bAmt").value));if(!a){toast("Enter a monthly amount.");$("bAmt").focus();return}
-    S.budgets[c]=a;markDirty();renderBudget();toast(`Budget set for ${c}`)};
+    const a=Math.abs(toCents($("bAmt").value));if(!a){toast("Enter an amount.");$("bAmt").focus();return}
+    const yr=$("bPer").value==="year";S.budgets[c]=a;if(yr)S.budgetPer[c]="year";else delete S.budgetPer[c];
+    markDirty();renderBudget();toast(`${yr?"Yearly":"Monthly"} budget set for ${c}`)};
   $("bAdd").onclick=add;$("bAmt").onkeydown=e=>{if(e.key==="Enter")add()};
-  $("bCat").addEventListener("change",()=>{const c=resolveCat($("bCat").value);if(c&&!$("bAmt").value){const avg=avgSpend(c,3);if(avg)$("bAmt").placeholder="Averaged "+money(avg)}});
+  const hint=()=>{const yr=$("bPer").value==="year",c=resolveCat($("bCat").value);$("bAmt").placeholder=yr?"Amount per year":"Amount per month";
+    if(!c||$("bAmt").value)return;if(yr){const t=avgSpend(c,12)*12;if(t)$("bAmt").placeholder="Past 12 months: "+money(t)}else{const avg=avgSpend(c,3);if(avg)$("bAmt").placeholder="Averaged "+money(avg)}};
+  $("bCat").addEventListener("change",hint);$("bPer").addEventListener("change",hint);hint();
   m.querySelectorAll("[data-b]").forEach(inp=>inp.onchange=()=>{const a=Math.abs(toCents(inp.value)),n=inp.dataset.b;
     if(!a){inp.value=(S.budgets[n]/100).toFixed(2);toast("Use × to remove a budget.");return}S.budgets[n]=a;markDirty();renderBudget()});
-  m.querySelectorAll("[data-brm]").forEach(b=>b.onclick=()=>{delete S.budgets[b.dataset.brm];markDirty();renderBudget();toast("Budget removed")});
+  m.querySelectorAll("[data-brm]").forEach(b=>b.onclick=()=>{delete S.budgets[b.dataset.brm];delete S.budgetPer[b.dataset.brm];markDirty();renderBudget();toast("Budget removed")});
   $("bSuggest").onclick=()=>{const cand=S.categories.filter(c=>c.kind==="spend"&&!parentOf(c.name)).map(c=>[c.name,avgSpend(c.name,3)]).filter(([n,v])=>v>=500&&!(n in S.budgets));
     if(!cand.length){toast("Not enough past spending to suggest from yet.");return}
     openDlg(`<div class="dlg-h"><h2>Suggested monthly budgets</h2><button class="x" data-close aria-label="Close">×</button></div>
@@ -969,7 +1088,7 @@ function renderBudget(){
       ${cand.map(([n,v],i)=>`<label style="display:flex;gap:.6rem;align-items:center;padding:.35rem 0;border-bottom:1px solid #EEF2EF"><input type="checkbox" data-sg="${i}" checked>
         <span style="flex:1">${esc(n)}</span><span class="num">${money(Math.ceil(v/1000)*1000)}</span></label>`).join("")}</div>
       <div class="dlg-f"><button data-close>Cancel</button><button class="primary" id="sgGo">Add these budgets</button></div>`);
-    $("sgGo").onclick=()=>{let k=0;document.querySelectorAll("[data-sg]").forEach(cb=>{if(cb.checked){const[n,v]=cand[+cb.dataset.sg];S.budgets[n]=Math.ceil(v/1000)*1000;k++}});
+    $("sgGo").onclick=()=>{let k=0;document.querySelectorAll("[data-sg]").forEach(cb=>{if(cb.checked){const[n,v]=cand[+cb.dataset.sg];S.budgets[n]=Math.ceil(v/1000)*1000;delete S.budgetPer[n];k++}});
       dlg.close();if(k){markDirty();renderBudget();toast(`Added ${k} ${k===1?"budget":"budgets"}`)}}};
 }
 function avgSpend(name,months){const now=today().slice(0,7);const[y,m]=now.split("-").map(Number);let tot=0;
@@ -1118,13 +1237,13 @@ function exportCSV(){const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([lines.join("\r\n")],{type:"text/csv"}));a.download="Homebook transactions "+today()+".csv";a.click()}
 /* ---------- boot ---------- */
 function render(){refreshCatList();renderSide();renderSaveState();
-  ({register:renderRegister,recurring:renderRecurring,budget:renderBudget,reports:renderReports,categories:renderCategories,data:renderData})[view]()}
+  ({register:renderRegister,recurring:renderRecurring,budget:renderBudget,debt:renderDebt,reports:renderReports,categories:renderCategories,data:renderData})[view]()}
 (async()=>{
   if(DESK){deskPath=await DESK.where();try{appVersion=await DESK.version()}catch(e){}let t=null;try{t=await DESK.load()}catch(e){}
     try{const d=t&&JSON.parse(t);S=d&&d.app==="homebook"?d:blank()}catch(e){S=blank();toast("Your Homebook file couldn't be read. Use Restore from a backup.")}
     S.payeeMap=S.payeeMap||{};}
   else S=loadLocal()||blank();
-  S.recurring=S.recurring||[];S.budgets=S.budgets||{};
+  S.recurring=S.recurring||[];S.budgets=S.budgets||{};S.budgetPer=S.budgetPer||{};
   const changed=ensureCats(),auto=runAutoRecurring();
   S.rules=S.rules||[];
   if(changed||auto){if(DESK)deskSave();else persistLocal()}
