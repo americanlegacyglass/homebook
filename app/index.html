@@ -132,6 +132,15 @@ dialog::backdrop{background:#1d292266}
 .rec-group th:nth-child(4){width:11%}.rec-group th:nth-child(5){width:13%}.rec-group th:nth-child(6){width:12%}.rec-group th:nth-child(7){width:22%}
 td.acts{white-space:nowrap;text-align:right}td.acts button{padding:.3rem .65rem;font-size:.88rem;margin-left:.3rem}
 table.inv .ck{display:none}
+.bud-row{display:grid;grid-template-columns:minmax(150px,1.2fr) 120px 2fr 110px 110px 32px;gap:.8rem;align-items:center;padding:.55rem 0;border-bottom:1px solid #EEF2EF}
+.bud-row.head{font-size:.82rem;font-weight:600;color:var(--muted);padding-top:0}
+.bud-row .bar{height:16px;border-radius:8px}
+.bud-row .bar i{transition:width .2s}
+.bud-sub{padding-left:1.4rem;color:var(--muted)}
+.bud-row input{width:100%;text-align:right}
+.bud-row .rm{border:0;background:none;color:var(--muted);font-size:1.2rem;padding:0}
+.bud-row .rm:hover{color:var(--red)}
+@media (max-width:820px){.bud-row{grid-template-columns:1fr 100px 90px 32px}.bud-row .bar,.bud-row .lft{display:none}}
 .cat-edit{display:grid;grid-template-columns:1fr 150px auto;gap:.6rem;align-items:center;padding:.35rem 0}
 .toast{position:fixed;bottom:1.4rem;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:.7rem 1.1rem;border-radius:var(--radius-s);opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
 .toast.show{opacity:1;pointer-events:auto}
@@ -155,6 +164,7 @@ table.inv .ck{display:none}
       <div class="side-h">Views</div>
       <a data-view="register" class="on">Register</a>
       <a data-view="recurring">Recurring</a>
+      <a data-view="budget">Budget</a>
       <a data-view="reports">Spending</a>
       <a data-view="categories">Categories and rules</a>
       <a data-view="data">Save and backup</a>
@@ -202,11 +212,12 @@ function renameCategory(old,nw){
   const map=new Map([[old,nw]]);S.categories.forEach(c=>{if(parentOf(c.name)===old)map.set(c.name,nw+": "+subOf(c.name))});
   for(const[o,n]of map){const c=S.categories.find(x=>x.name===o);if(c)c.name=n;
     S.txns.forEach(t=>{if(t.cat===o)t.cat=n});for(const k in S.payeeMap)if(S.payeeMap[k]===o)S.payeeMap[k]=n;
-    (S.recurring||[]).forEach(r=>{if(r.cat===o)r.cat=n});(S.rules||[]).forEach(r=>{if(r.cat===o)r.cat=n})}}
+    (S.recurring||[]).forEach(r=>{if(r.cat===o)r.cat=n});(S.rules||[]).forEach(r=>{if(r.cat===o)r.cat=n});
+    if(S.budgets&&o in S.budgets){S.budgets[n]=S.budgets[o];delete S.budgets[o]}}}
 function removeCategory(name){
   S.txns.forEach(t=>{if(t.cat===name)t.cat=""});(S.recurring||[]).forEach(r=>{if(r.cat===name)r.cat=""});
   (S.rules||[]).forEach(r=>{if(r.cat===name)r.cat=""});S.rules=(S.rules||[]).filter(r=>r.rename||r.cat);
-  for(const k in S.payeeMap)if(S.payeeMap[k]===name)delete S.payeeMap[k];S.categories=S.categories.filter(c=>c.name!==name)}
+  for(const k in S.payeeMap)if(S.payeeMap[k]===name)delete S.payeeMap[k];if(S.budgets)delete S.budgets[name];S.categories=S.categories.filter(c=>c.name!==name)}
 const DESK=window.homebookDesktop||null;let appVersion="";
 if(DESK&&DESK.refocus){ // Windows: restore typing after yes/no pop-ups
   const nativeConfirm=window.confirm.bind(window),nativeAlert=window.alert.bind(window);
@@ -215,7 +226,7 @@ if(DESK&&DESK.refocus){ // Windows: restore typing after yes/no pop-ups
 }let deskPath="",saveChain=Promise.resolve();
 let S=null, view="register", curAcct=null, fileHandle=null, dirty=false, lastSaved=null, filterMonth="", search="";
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-function blank(){return{app:"homebook",version:1,catsVersion:5,recurring:[],rules:[],accounts:[],categories:DEFAULT_CATS.map(([name,kind])=>({name,kind})),txns:[],payeeMap:{}}}
+function blank(){return{app:"homebook",version:1,catsVersion:5,recurring:[],rules:[],budgets:{},accounts:[],categories:DEFAULT_CATS.map(([name,kind])=>({name,kind})),txns:[],payeeMap:{}}}
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money=c=>{const n=(c||0)/100;return(n<0?"-":"")+"$"+Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
 const toCents=v=>{if(v===""||v==null)return 0;const n=parseFloat(String(v).replace(/[$,\s]/g,"").replace(/^\((.*)\)$/,"-$1"));return isNaN(n)?0:Math.round(n*100)};
@@ -272,7 +283,7 @@ async function openFile(){
 }
 function loadData(txt,handle){
   try{const d=JSON.parse(txt);if(!d||d.app!=="homebook")throw 0;
-    S=d;S.payeeMap=S.payeeMap||{};S.recurring=S.recurring||[];S.rules=S.rules||[];ensureCats();undoStack=[];snapshotBase();fileHandle=handle||null;curAcct=S.accounts[0]?.id||null;dirty=false;lastSaved=new Date();
+    S=d;S.payeeMap=S.payeeMap||{};S.recurring=S.recurring||[];S.budgets=S.budgets||{};S.rules=S.rules||[];ensureCats();undoStack=[];snapshotBase();fileHandle=handle||null;curAcct=S.accounts[0]?.id||null;dirty=false;lastSaved=new Date();
     if(!DESK)persistLocal();render();toast("Opened your Homebook file")}
   catch(e){toast("That isn't a Homebook file.")}
 }
@@ -879,6 +890,73 @@ function trendChart(ym,spent,got,inMonth){
   return`<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;min-width:420px" role="img" aria-label="Spending and money in, last 6 months">
     <line x1="${pad}" x2="${W-pad}" y1="${H-20}" y2="${H-20}" stroke="#DCE3DE"/>${bars}</svg></div>
     <div class="chart-key"><span style="--c:#D62728">Spent</span><span style="--c:#2E5B47">Money in</span></div>`}
+/* ---------- budget ---------- */
+function monthSpend(ym){ // net spending per category for a month, same rules as the Spending screen
+  const out={};for(const t of S.txns){if(!t.date.startsWith(ym)||t.xfer||isInv(acctOf(t.acct)))continue;
+    const k=catKind(t.cat);if(k==="transfer"||k==="income")continue;const c=t.cat||"";out[c]=(out[c]||0)-t.amt}
+  return out}
+function spentFor(name,spend){let v=0;for(const c in spend)if(c===name||parentOf(c)===name)v+=spend[c];return v}
+function renderBudget(){
+  const m=document.getElementById("main");S.budgets=S.budgets||{};
+  const ym=filterMonth&&/^\d{4}-\d{2}$/.test(filterMonth)?filterMonth:today().slice(0,7);filterMonth=ym;
+  const[y,mo]=ym.split("-").map(Number);const shift=n=>{const d=new Date(y,mo-1+n,1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")};
+  const spend=monthSpend(ym);
+  const names=S.categories.map(c=>c.name).filter(n=>n in S.budgets);
+  const rows=names.map(n=>{const b=S.budgets[n],sp=Math.max(0,spentFor(n,spend));return{n,b,sp,left:b-sp,pct:b?sp/b:0}});
+  const topRows=rows.filter(r=>!parentOf(r.n)||!(parentOf(r.n)in S.budgets));
+  const totB=topRows.reduce((s,r)=>s+r.b,0),totS=topRows.reduce((s,r)=>s+r.sp,0);
+  const covered=c=>names.some(n=>c===n||parentOf(c)===n);
+  const unbudgeted=Object.entries(spend).filter(([c,v])=>v>0&&!covered(c)).reduce((s,[,v])=>s+v,0);
+  const isNow=ym===today().slice(0,7),daysIn=new Date(y,mo,0).getDate(),daysLeft=isNow?daysIn-new Date().getDate()+1:0;
+  const color=p=>p>1?"var(--red)":p>=.8?"#E0A100":"var(--saguaro)";
+  m.innerHTML=`<div class="head"><div><h1>Budget</h1><p class="sub">Set a monthly amount for the categories you want to watch. The same budget carries over every month.</p></div>
+    <div style="display:flex;gap:.5rem;align-items:center"><button id="bPrev" aria-label="Previous month">‹</button><b style="min-width:10rem;text-align:center">${monthName(ym)}</b><button id="bNext" aria-label="Next month">›</button></div></div>
+  ${rows.length?`<div class="stat-row">
+    <div class="stat"><span>Budgeted</span><b class="num" style="text-align:left">${money(totB)}</b></div>
+    <div class="stat"><span>Spent</span><b class="num" style="text-align:left">${money(totS)}</b></div>
+    <div class="stat"><span>${totB-totS<0?"Over budget":"Left to spend"}</span><b class="num ${totB-totS<0?"neg":"in"}" style="text-align:left">${money(Math.abs(totB-totS))}</b></div>
+    ${isNow&&totB-totS>0?`<div class="stat"><span>About per day, ${daysLeft} ${daysLeft===1?"day":"days"} left</span><b class="num" style="text-align:left">${money(Math.floor((totB-totS)/daysLeft))}</b></div>`:""}
+  </div>`:""}
+  <div class="panel pad">
+    ${rows.length?`<div class="bud-row head"><span>Category</span><span class="num">Monthly budget</span><span></span><span class="num">Spent</span><span class="num lft">Left</span><span></span></div>
+    ${rows.map(r=>`<div class="bud-row"><span class="${parentOf(r.n)?"bud-sub":""}">${esc(parentOf(r.n)&&parentOf(r.n)in S.budgets?"↳ "+subOf(r.n):r.n)}</span>
+      <input class="num" inputmode="decimal" data-b="${esc(r.n)}" value="${(r.b/100).toFixed(2)}" aria-label="Budget for ${esc(r.n)}">
+      <div class="bar" title="${Math.round(r.pct*100)}% used"><i style="width:${Math.min(100,r.pct*100)}%;background:${color(r.pct)}"></i></div>
+      <span class="num">${money(r.sp)}<br><small class="note">${Math.round(r.pct*100)}%</small></span>
+      <span class="num lft ${r.left<0?"neg":""}">${r.left<0?"Over "+money(-r.left):money(r.left)}</span>
+      <button class="rm" data-brm="${esc(r.n)}" title="Stop budgeting ${esc(r.n)}" aria-label="Remove">×</button></div>`).join("")}`
+    :`<div class="empty"><b>No budgets yet</b>Pick a category below, like Groceries or Dining out, and give it a monthly amount.</div>`}
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:1rem">
+      ${catInput('id="bCat" style="width:220px"',"")}<input id="bAmt" class="num" inputmode="decimal" placeholder="Monthly amount" style="width:150px">
+      <button class="primary" id="bAdd">Add to budget</button><span class="grow"></span>
+      <button id="bSuggest" title="Uses the average of the last 3 months">Suggest amounts from past spending</button></div>
+    ${unbudgeted>0?`<p class="note" style="margin-bottom:0">Also spent ${money(unbudgeted)} this month in categories without a budget.</p>`:""}
+  </div>`;
+  const $=id=>document.getElementById(id);
+  $("bPrev").onclick=()=>{filterMonth=shift(-1);renderBudget()};$("bNext").onclick=()=>{filterMonth=shift(1);renderBudget()};
+  const add=()=>{const c=readCat($("bCat"));if(c===null)return;if(!c){toast("Pick a category.");return}
+    if(catKind(c)!=="spend"){toast("Budgets are for spending categories.");return}
+    const a=Math.abs(toCents($("bAmt").value));if(!a){toast("Enter a monthly amount.");$("bAmt").focus();return}
+    S.budgets[c]=a;markDirty();renderBudget();toast(`Budget set for ${c}`)};
+  $("bAdd").onclick=add;$("bAmt").onkeydown=e=>{if(e.key==="Enter")add()};
+  $("bCat").addEventListener("change",()=>{const c=resolveCat($("bCat").value);if(c&&!$("bAmt").value){const avg=avgSpend(c,3);if(avg)$("bAmt").placeholder="Averaged "+money(avg)}});
+  m.querySelectorAll("[data-b]").forEach(inp=>inp.onchange=()=>{const a=Math.abs(toCents(inp.value)),n=inp.dataset.b;
+    if(!a){inp.value=(S.budgets[n]/100).toFixed(2);toast("Use × to remove a budget.");return}S.budgets[n]=a;markDirty();renderBudget()});
+  m.querySelectorAll("[data-brm]").forEach(b=>b.onclick=()=>{delete S.budgets[b.dataset.brm];markDirty();renderBudget();toast("Budget removed")});
+  $("bSuggest").onclick=()=>{const cand=S.categories.filter(c=>c.kind==="spend"&&!parentOf(c.name)).map(c=>[c.name,avgSpend(c.name,3)]).filter(([n,v])=>v>=500&&!(n in S.budgets));
+    if(!cand.length){toast("Not enough past spending to suggest from yet.");return}
+    openDlg(`<div class="dlg-h"><h2>Suggested monthly budgets</h2><button class="x" data-close aria-label="Close">×</button></div>
+      <div class="dlg-b"><p class="note" style="margin-top:0">Based on the average of the last 3 months, rounded up. Uncheck anything you don't want to track.</p>
+      ${cand.map(([n,v],i)=>`<label style="display:flex;gap:.6rem;align-items:center;padding:.35rem 0;border-bottom:1px solid #EEF2EF"><input type="checkbox" data-sg="${i}" checked>
+        <span style="flex:1">${esc(n)}</span><span class="num">${money(Math.ceil(v/1000)*1000)}</span></label>`).join("")}</div>
+      <div class="dlg-f"><button data-close>Cancel</button><button class="primary" id="sgGo">Add these budgets</button></div>`);
+    $("sgGo").onclick=()=>{let k=0;document.querySelectorAll("[data-sg]").forEach(cb=>{if(cb.checked){const[n,v]=cand[+cb.dataset.sg];S.budgets[n]=Math.ceil(v/1000)*1000;k++}});
+      dlg.close();if(k){markDirty();renderBudget();toast(`Added ${k} ${k===1?"budget":"budgets"}`)}}};
+}
+function avgSpend(name,months){const now=today().slice(0,7);const[y,m]=now.split("-").map(Number);let tot=0;
+  for(let i=1;i<=months;i++){const d=new Date(y,m-1-i,1);tot+=Math.max(0,spentFor(name,monthSpend(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"))))}
+  return Math.round(tot/months)}
+
 /* ---------- categories ---------- */
 function renderCategories(){
   const m=document.getElementById("main");
@@ -1021,13 +1099,13 @@ function exportCSV(){const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([lines.join("\r\n")],{type:"text/csv"}));a.download="Homebook transactions "+today()+".csv";a.click()}
 /* ---------- boot ---------- */
 function render(){refreshCatList();renderSide();renderSaveState();
-  ({register:renderRegister,recurring:renderRecurring,reports:renderReports,categories:renderCategories,data:renderData})[view]()}
+  ({register:renderRegister,recurring:renderRecurring,budget:renderBudget,reports:renderReports,categories:renderCategories,data:renderData})[view]()}
 (async()=>{
   if(DESK){deskPath=await DESK.where();try{appVersion=await DESK.version()}catch(e){}let t=null;try{t=await DESK.load()}catch(e){}
     try{const d=t&&JSON.parse(t);S=d&&d.app==="homebook"?d:blank()}catch(e){S=blank();toast("Your Homebook file couldn't be read. Use Restore from a backup.")}
     S.payeeMap=S.payeeMap||{};}
   else S=loadLocal()||blank();
-  S.recurring=S.recurring||[];
+  S.recurring=S.recurring||[];S.budgets=S.budgets||{};
   const changed=ensureCats(),auto=runAutoRecurring();
   S.rules=S.rules||[];
   if(changed||auto){if(DESK)deskSave();else persistLocal()}
