@@ -39,6 +39,9 @@ aside{background:var(--saguaro);color:#EAF2ED;padding:1.4rem 1rem;display:flex;f
 .acct .num{opacity:.9}
 .side-add{background:none;border:1px dashed #ffffff55;color:#EAF2ED;width:100%;margin-top:.4rem}
 .side-add:hover{border-color:#fff}
+.side-h.grp{display:flex;justify-content:space-between;margin:.9rem 0 .2rem;font-weight:600;letter-spacing:.02em}
+.side-h.grp:first-child{margin-top:.2rem}
+.acct .num.neg,.side-h .num.neg{color:#FFC9C2}
 .save-state{margin-top:auto;font-size:.85rem;padding:.7rem;border-radius:var(--radius-s);background:#0000001f}
 .save-state b{display:block}
 .save-state button{margin-top:.5rem;width:100%;background:#fff;color:var(--saguaro);border:0;font-weight:600}
@@ -352,12 +355,16 @@ let seqN=0;const nextSeq=()=>Date.now()*10+(seqN++%10);
 /* ---------- sidebar ---------- */
 function renderSide(){
   const el=document.getElementById("acctList");
-  const btn=a=>`<button class="acct ${a.id===curAcct&&view==="register"?"on":""}" data-id="${a.id}"><span>${esc(a.name)}</span><span class="num">${money(balances(a.id).bal)}</span></button>`;
-  const bank=S.accounts.filter(a=>!isInv(a)),inv=S.accounts.filter(isInv);
-  const total=S.accounts.reduce((s,a)=>s+balances(a.id).bal,0);
-  el.innerHTML=S.accounts.length?(bank.map(btn).join("")+(inv.length?`<div class="side-h" style="margin-top:.8rem">Investments</div>`+inv.map(btn).join(""):"")
-    +(S.accounts.length>1?`<div class="acct" style="cursor:default;border-top:1px solid #ffffff33;border-radius:0;margin-top:.5rem;padding-top:.7rem"><span>Net worth</span><span class="num"><b>${money(total)}</b></span></div>`:""))
-   :`<div class="note" style="color:#cfe0d6;padding:0 .6rem">No accounts yet</div>`;
+  const btn=a=>{const b=balances(a.id).bal;return`<button class="acct ${a.id===curAcct&&view==="register"?"on":""}" data-id="${a.id}"><span>${esc(a.name)}</span><span class="num ${b<0?"neg":""}">${money(b)}</span></button>`};
+  const GROUPS=[["Checking",a=>a.type==="checking"],["Savings",a=>a.type==="savings"],["Credit cards",a=>a.type==="credit"],["Cash",a=>a.type==="cash"],["Investments",isInv]];
+  const shown=new Set();let html="";
+  for(const[label,fn]of GROUPS){const list=S.accounts.filter(fn);if(!list.length)continue;list.forEach(x=>shown.add(x.id));
+    const sub=list.reduce((t,x)=>t+balances(x.id).bal,0);
+    html+=`<div class="side-h grp"><span>${label}</span>${list.length>1?`<span class="num ${sub<0?"neg":""}">${money(sub)}</span>`:""}</div>`+list.map(btn).join("")}
+  const rest=S.accounts.filter(x=>!shown.has(x.id));
+  if(rest.length)html+=`<div class="side-h grp"><span>Other</span></div>`+rest.map(btn).join("");
+  const total=S.accounts.reduce((t,x)=>t+balances(x.id).bal,0);
+  el.innerHTML=S.accounts.length?html+(S.accounts.length>1?`<div class="acct" style="cursor:default;border-top:1px solid #ffffff33;border-radius:0;margin-top:.6rem;padding-top:.7rem"><span>Net worth</span><span class="num ${total<0?"neg":""}"><b>${money(total)}</b></span></div>`:""):`<div class="note" style="color:#cfe0d6;padding:0 .6rem">No accounts yet</div>`;
   el.querySelectorAll(".acct[data-id]").forEach(b=>b.onclick=()=>{curAcct=b.dataset.id;view="register";render()});
   document.querySelectorAll(".nav a").forEach(a=>a.classList.toggle("on",a.dataset.view===view));
 }
@@ -398,10 +405,11 @@ function renderRegister(){
   <div class="head">
     <div><h1>${esc(a.name)}</h1><p class="sub">${ACCT_TYPES[a.type]||"Checking"}${isInv(a)?"":" account"}. <a href="#" id="editAcct" style="color:var(--sky)">Edit account</a></p></div>
     <div class="balance-strip">
-      <div><div class="bal-lbl">${isInv(a)?"Current value":"Balance today"}</div><div class="bal-main num ${bal<0?"neg":""}">${money(bal)}</div></div>
+      <div><div class="bal-lbl">${isInv(a)?"Current value":"Balance today"}</div><div class="bal-main num ${bal<0?"neg":""}">${money(bal)}</div>${a.type==="credit"?`<div class="bal-lbl">${bal<0?"You owe "+money(-bal):bal===0?"Paid off":"Credit balance: the card company owes you "+money(bal)}</div>`:""}</div>
       ${isInv(a)?invStats(a):`<div><div class="bal-lbl">Cleared with bank</div><div class="bal-2 num">${money(clr)}</div></div>`}
     </div>
   </div>
+  ${a.type==="credit"&&bal>0?`<p class="warn" style="margin-bottom:1rem">This card shows a <b>positive</b> balance, meaning you've paid in more than you owe. If that isn't right, check that purchases are in the <b>Payment</b> column, payments to the card are in <b>Deposit</b>, and the starting balance is what you owed.</p>`:""}
   ${upcomingStrip(a.id)}
   <div class="toolbar">
     <input type="search" id="q" placeholder="Search payee, memo, amount" value="${esc(search)}" style="width:260px">
@@ -471,20 +479,28 @@ function openDlg(html,wide){document.getElementById("dlgBody").innerHTML=html;dl
   dlg.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>dlg.close())}
 function accountDialog(a){
   const isNew=!a;a=a||{name:"",type:"checking",opening:0};
+  let shownCredit=a.type==="credit";const shownVal=shownCredit?-a.opening:a.opening;
   openDlg(`<div class="dlg-h"><h2>${isNew?"Add account":"Edit account"}</h2><button class="x" data-close aria-label="Close">×</button></div>
   <div class="dlg-b"><div class="form">
     <label class="full">Account name<input id="aName" value="${esc(a.name)}" placeholder="Checking"></label>
     <label>Type<select id="aType"><optgroup label="Banking"><option value="checking">Checking</option><option value="savings">Savings</option><option value="credit">Credit card</option><option value="cash">Cash</option></optgroup>
       <optgroup label="Investments and retirement"><option value="roth">Roth IRA</option><option value="traditional">Traditional IRA</option><option value="k401">401(k)</option><option value="b403">403(b)</option><option value="brokerage">Brokerage</option><option value="hsa">HSA</option><option value="edu529">529 college savings</option><option value="invest">Other investment</option></optgroup></select></label>
-    <label>Starting balance or value<input id="aOpen" class="num" inputmode="decimal" value="${(a.opening/100).toFixed(2)}"></label>
-    <p class="note full" style="grid-column:1/-1;margin:0">Use the balance from before your first transaction here. For a credit card, enter what you owe as a negative number. For an investment account, enter its current value from your latest statement.</p>
+    <label><span id="aOpenLbl">Starting balance</span><input id="aOpen" class="num" inputmode="decimal" value="${(shownVal/100).toFixed(2)}"></label>
+    <p class="note full" id="aNote" style="grid-column:1/-1;margin:0"></p>
   </div></div>
   <div class="dlg-f">${isNew?"":`<button class="danger" id="aDel">Delete account</button>`}<span class="grow"></span><button data-close>Cancel</button><button class="primary" id="aSave">${isNew?"Add account":"Save"}</button></div>`);
   document.getElementById("aType").value=a.type;
+  const syncType=()=>{const t=document.getElementById("aType").value,cr=t==="credit",inv=INVEST.has(t),f=document.getElementById("aOpen");
+    if(cr!==shownCredit){const v=toCents(f.value);if(f.value.trim()!=="")f.value=(-v/100).toFixed(2);shownCredit=cr} // keep the same stored balance when the type changes
+    document.getElementById("aOpenLbl").textContent=cr?"Amount you owe now":inv?"Current value":"Starting balance";
+    document.getElementById("aNote").textContent=cr?"Enter what you owe right now as a positive number, like 500.00. Homebook shows it as a negative balance. If the card has a credit balance (you overpaid), enter it as a negative number."
+      :inv?"Enter its current value from your latest statement.":"Use the balance from before your first transaction."};
+  document.getElementById("aType").onchange=syncType;syncType();
   document.getElementById("aSave").onclick=()=>{
     const name=document.getElementById("aName").value.trim();if(!name){toast("Give the account a name.");return}
-    if(isNew){a={id:uid(),name,type:document.getElementById("aType").value,opening:toCents(document.getElementById("aOpen").value)};S.accounts.push(a);curAcct=a.id;view="register"}
-    else{a.name=name;a.type=document.getElementById("aType").value;a.opening=toCents(document.getElementById("aOpen").value)}
+    const type=document.getElementById("aType").value,raw=toCents(document.getElementById("aOpen").value),opening=type==="credit"?-raw:raw;
+    if(isNew){a={id:uid(),name,type,opening};S.accounts.push(a);curAcct=a.id;view="register"}
+    else{a.name=name;a.type=type;a.opening=opening}
     dlg.close();markDirty();render()};
   const d=document.getElementById("aDel");
   if(d)d.onclick=()=>{const n=acctTx(a.id).length;if(!confirm(`Delete "${a.name}" and its ${n} transactions? This can't be undone.`))return;
@@ -691,7 +707,7 @@ function reconcileDialog(){
   <div class="dlg-b">
     <div class="form" style="margin-bottom:1rem">
       <label>Statement ending date<input type="date" id="rDate" value="${today()}"></label>
-      <label>Statement ending balance<input id="rBal" class="num" inputmode="decimal" placeholder="0.00"></label>
+      <label>${a.type==="credit"?"Amount you owe on the statement":"Statement ending balance"}<input id="rBal" class="num" inputmode="decimal" placeholder="0.00"></label>
     </div>
     <div class="rec-sum"><div><span class="note">Last reconciled balance</span><b class="num" style="text-align:left">${money(startBal)}</b></div>
       <div><span class="note">Checked items total</span><b id="rClr" class="num" style="text-align:left"></b></div>
@@ -710,7 +726,7 @@ function reconcileDialog(){
   const inRange=t=>{const end=$("rDate").value;return!end||t.date<=end};
   const calc=()=>{const clr=startBal+open.filter(t=>picked.has(t.id)&&inRange(t)).reduce((s,t)=>s+t.amt,0);$("rClr").textContent=money(clr);
     const bv=$("rBal").value.trim();if(!bv){$("rDiff").textContent="Enter balance";$("rDiffBox").className="";$("rDone").disabled=true;return}
-    const diff=clr-toCents(bv);$("rDiff").textContent=money(diff);$("rDiffBox").className=diff===0?"ok":"bad";$("rDone").disabled=diff!==0;
+    const diff=clr-(a.type==="credit"?-toCents(bv):toCents(bv));$("rDiff").textContent=money(diff);$("rDiffBox").className=diff===0?"ok":"bad";$("rDone").disabled=diff!==0;
     $("rMsg").textContent=diff===0?"Balanced. Click Finish to lock these in.":""};
   $("rBal").oninput=calc;$("rDate").onchange=draw;draw();
   $("rDone").onclick=()=>{let n=0;for(const t of open){if(!inRange(t))continue;if(picked.has(t.id)){t.status="r";n++}else if(t.status==="c")t.status=""}
@@ -770,6 +786,8 @@ function csvMapDialog(rows,fname){
   const h=rows[0].map(x=>x.trim());const low=h.map(x=>x.toLowerCase());
   const find=(...ks)=>low.findIndex(x=>ks.some(k=>x.includes(k)));
   const g={date:find("date"),desc:find("description","payee","name","merchant","memo"),amt:find("amount"),out:find("debit","withdraw","payment"),inn:find("credit","deposit"),num:find("check")};
+  const tgt=acctOf(curAcct);let autoFlip=false;
+  if(tgt&&tgt.type==="credit"&&g.amt>=0&&!(g.out>=0&&g.inn>=0)){let pos=0,neg=0;for(const r of rows.slice(1)){const v=toCents(r[g.amt]);if(v>0)pos++;else if(v<0)neg++}autoFlip=pos>neg}
   const opts=sel=>`<option value="-1">Not in file</option>`+h.map((x,i)=>`<option value="${i}" ${i===sel?"selected":""}>${esc(x||"Column "+(i+1))}</option>`).join("");
   openDlg(`<div class="dlg-h"><h2>Match the columns</h2><button class="x" data-close aria-label="Close">×</button></div>
   <div class="dlg-b"><p class="note" style="margin-top:0">Tell Homebook which column in <b>${esc(fname)}</b> holds each piece of information.</p>
@@ -780,7 +798,8 @@ function csvMapDialog(rows,fname){
     <label>Check number<select id="cNum">${opts(g.num)}</select></label>
     <label>Or: Payments column<select id="cOut">${opts(g.amt>=0&&!(g.out>=0&&g.inn>=0)?-1:g.out)}</select></label>
     <label>And: Deposits column<select id="cIn">${opts(g.amt>=0&&!(g.out>=0&&g.inn>=0)?-1:g.inn)}</select></label>
-    <label class="full" style="flex-direction:row;align-items:center;gap:.5rem;color:var(--ink)"><input type="checkbox" id="cFlip"> My bank shows payments as positive numbers in the Amount column</label>
+    <label class="full" style="flex-direction:row;align-items:center;gap:.5rem;color:var(--ink)"><input type="checkbox" id="cFlip" ${autoFlip?"checked":""}> My bank shows payments as positive numbers in the Amount column</label>
+    ${autoFlip?`<p class="note full" style="grid-column:1/-1;margin:0">Pre-checked because most amounts in this file are positive, which is how many card companies list purchases. On the next screen, purchases should show as negative.</p>`:""}
   </div>
   <p class="note">First row of the file: ${rows[1].map(esc).join(" | ")}</p></div>
   <div class="dlg-f"><button data-close>Cancel</button><button class="primary" id="cGo">Continue</button></div>`);
