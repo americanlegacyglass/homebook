@@ -175,7 +175,7 @@ table.inv .ck{display:none}
 const DEFAULT_CATS=[["Groceries","spend"],["Dining out","spend"],["Coffee","spend"],["Gas","spend"],["Car payment","spend"],["Car maintenance","spend"],
 ["Rent or mortgage","spend"],["Utilities","spend"],["Phone and internet","spend"],["Insurance","spend"],["Medical","spend"],["Pharmacy","spend"],
 ["Household supplies","spend"],["Home repair","spend"],["Clothing","spend"],["Personal care","spend"],["Shopping","spend"],["Entertainment","spend"],
-["Subscriptions","spend"],["Travel","spend"],["Pets","spend"],["Gifts","spend"],["Church and charity","spend"],["Education","spend"],["Hobbies","spend"],
+["Subscriptions","spend"],["Travel","spend"],["Travel: Flights","spend",5],["Travel: Hotels","spend",5],["Travel: Rental car","spend",5],["Travel: Food","spend",5],["Travel: Activities","spend",5],["Travel: Souvenirs","spend",5],["Pets","spend"],["Gifts","spend"],["Church and charity","spend"],["Education","spend"],["Hobbies","spend"],
 ["Fitness","spend"],["Bank fees and interest","spend"],["Taxes","spend"],["Cash withdrawal","spend"],["Other","spend"],
 ["Paycheck","income"],["Social Security or pension","income"],["Refund","income"],["Interest earned","income"],["Other income","income"],
 ["Transfer","transfer"],["Transfer to savings","transfer"],["Transfer from savings","transfer"],["Credit card payment","transfer"],["Loan payment","spend"],["Retirement savings","transfer"],["Savings","transfer"],["Investment contribution","transfer"],["Investment withdrawal","transfer"],["Market change","transfer"],["Dividends and interest","transfer"]];
@@ -187,9 +187,26 @@ const ACCT_TYPES={checking:"Checking",savings:"Savings",credit:"Credit card",cas
 const INVEST=new Set(["roth","traditional","k401","b403","brokerage","hsa","edu529","invest"]);
 const isInv=a=>a&&INVEST.has(a.type);
 const acctOf=id=>S.accounts.find(a=>a.id===id);
-function ensureCats(){if((S.catsVersion||1)>=4)return false;let added=false;
-  for(const[name,kind]of DEFAULT_CATS)if(!S.categories.some(c=>c.name.toLowerCase()===name.toLowerCase())){S.categories.push({name,kind});added=true}
-  S.catsVersion=4;return true}
+const CATS_VERSION=5;
+function ensureCats(){const v=S.catsVersion||1;if(v>=CATS_VERSION)return false;
+  // only add categories introduced after this file's version, so ones she deleted don't come back
+  for(const[name,kind,since]of DEFAULT_CATS){if((since||4)<=v&&v>=4)continue;
+    if(!S.categories.some(c=>c.name.toLowerCase()===name.toLowerCase())){const par=parentOf(name);
+      if(par&&!S.categories.some(c=>c.name===par))continue;
+      const at=par?S.categories.map(c=>c.name===par||parentOf(c.name)===par).lastIndexOf(true)+1:S.categories.length;
+      S.categories.splice(at,0,{name,kind})}}
+  S.catsVersion=CATS_VERSION;return true}
+const parentOf=n=>{n=String(n||"");const i=n.indexOf(": ");return i>0?n.slice(0,i):null};
+const subOf=n=>{n=String(n||"");const i=n.indexOf(": ");return i>0?n.slice(i+2):n};
+function renameCategory(old,nw){
+  const map=new Map([[old,nw]]);S.categories.forEach(c=>{if(parentOf(c.name)===old)map.set(c.name,nw+": "+subOf(c.name))});
+  for(const[o,n]of map){const c=S.categories.find(x=>x.name===o);if(c)c.name=n;
+    S.txns.forEach(t=>{if(t.cat===o)t.cat=n});for(const k in S.payeeMap)if(S.payeeMap[k]===o)S.payeeMap[k]=n;
+    (S.recurring||[]).forEach(r=>{if(r.cat===o)r.cat=n});(S.rules||[]).forEach(r=>{if(r.cat===o)r.cat=n})}}
+function removeCategory(name){
+  S.txns.forEach(t=>{if(t.cat===name)t.cat=""});(S.recurring||[]).forEach(r=>{if(r.cat===name)r.cat=""});
+  (S.rules||[]).forEach(r=>{if(r.cat===name)r.cat=""});S.rules=(S.rules||[]).filter(r=>r.rename||r.cat);
+  for(const k in S.payeeMap)if(S.payeeMap[k]===name)delete S.payeeMap[k];S.categories=S.categories.filter(c=>c.name!==name)}
 const DESK=window.homebookDesktop||null;let appVersion="";
 if(DESK&&DESK.refocus){ // Windows: restore typing after yes/no pop-ups
   const nativeConfirm=window.confirm.bind(window),nativeAlert=window.alert.bind(window);
@@ -198,7 +215,7 @@ if(DESK&&DESK.refocus){ // Windows: restore typing after yes/no pop-ups
 }let deskPath="",saveChain=Promise.resolve();
 let S=null, view="register", curAcct=null, fileHandle=null, dirty=false, lastSaved=null, filterMonth="", search="";
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-function blank(){return{app:"homebook",version:1,catsVersion:4,recurring:[],rules:[],accounts:[],categories:DEFAULT_CATS.map(([name,kind])=>({name,kind})),txns:[],payeeMap:{}}}
+function blank(){return{app:"homebook",version:1,catsVersion:5,recurring:[],rules:[],accounts:[],categories:DEFAULT_CATS.map(([name,kind])=>({name,kind})),txns:[],payeeMap:{}}}
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money=c=>{const n=(c||0)/100;return(n<0?"-":"")+"$"+Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
 const toCents=v=>{if(v===""||v==null)return 0;const n=parseFloat(String(v).replace(/[$,\s]/g,"").replace(/^\((.*)\)$/,"-$1"));return isNaN(n)?0:Math.round(n*100)};
@@ -718,7 +735,8 @@ function parseQIF(txt){const out=[];let cur={};
   for(const raw of txt.split(/\r?\n/)){const line=raw.trimEnd();if(!line||line.startsWith("!"))continue;const k=line[0],v=line.slice(1).trim();
     if(k==="^"){if(cur.date)out.push({date:cur.date,amt:cur.amt||0,payee:cur.payee||"(no payee)",memo:cur.memo||"",num:cur.num||"",cat:cur.cat||""});cur={};continue}
     if(k==="D")cur.date=parseDate(v.replace("'","/"));else if(k==="T"||k==="U")cur.amt=toCents(v);else if(k==="P")cur.payee=v;
-    else if(k==="M")cur.memo=v;else if(k==="N")cur.num=/^\d+$/.test(v)?v:"";else if(k==="L"&&!v.startsWith("["))cur.cat=v.split(":")[0]}
+    else if(k==="M")cur.memo=v;else if(k==="N")cur.num=/^\d+$/.test(v)?v:"";else if(k==="L"&&!v.startsWith("[")){const[a,b]=v.split(":");const full=b?a.trim()+": "+b.trim():a.trim();
+      cur.cat=S.categories.some(c=>c.name.toLowerCase()===full.toLowerCase())?S.categories.find(c=>c.name.toLowerCase()===full.toLowerCase()).name:a.trim()}}
   return out}
 function parseCSV(txt){const rows=[];let row=[],f="",q=false;
   for(let i=0;i<txt.length;i++){const c=txt[i];
@@ -809,14 +827,16 @@ function renderReports(){
   const inMonth=k=>S.txns.filter(t=>t.date.startsWith(k)&&catKind(t.cat)!=="transfer"&&!t.xfer&&!isInv(acctOf(t.acct)));
   const cur=inMonth(ym),last=inMonth(pym);
   const spent=l=>l.filter(t=>t.amt<0).reduce((s,t)=>s-t.amt,0),got=l=>l.filter(t=>t.amt>0).reduce((s,t)=>s+t.amt,0);
-  const byCat={};cur.filter(t=>t.amt<0).forEach(t=>{const k=t.cat||"No category";byCat[k]=(byCat[k]||0)-t.amt});
-  const lastCat={};last.filter(t=>t.amt<0).forEach(t=>{const k=t.cat||"No category";lastCat[k]=(lastCat[k]||0)-t.amt});
+  const rk=c=>{c=c||"No category";return S.showSubs?c:(parentOf(c)||c)};
+  const byCat={};cur.filter(t=>t.amt<0).forEach(t=>{const k=rk(t.cat);byCat[k]=(byCat[k]||0)-t.amt});
+  const lastCat={};last.filter(t=>t.amt<0).forEach(t=>{const k=rk(t.cat);lastCat[k]=(lastCat[k]||0)-t.amt});
   const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]),max=cats[0]?.[1]||1;
   const payees={};cur.filter(t=>t.amt<0).forEach(t=>payees[t.payee]=(payees[t.payee]||0)-t.amt);
   const top=Object.entries(payees).sort((a,b)=>b[1]-a[1]).slice(0,8);
   const s=spent(cur),ls=spent(last),chg=ls?Math.round((s/ls-1)*100):null;
   m.innerHTML=`<div class="head"><div><h1>Spending</h1><p class="sub">Checking, savings, credit cards and cash. Transfers and investment accounts aren't counted.</p></div>
-    <select id="rm">${(months.length?months:[ym]).map(x=>`<option value="${x}" ${x===ym?"selected":""}>${monthName(x)}</option>`).join("")}</select></div>
+    <span style="display:flex;gap:1rem;align-items:center"><label style="display:flex;gap:.4rem;align-items:center;font-size:.92rem"><input type="checkbox" id="showSubs" ${S.showSubs?"checked":""}> Show subcategories</label>
+    <select id="rm">${(months.length?months:[ym]).map(x=>`<option value="${x}" ${x===ym?"selected":""}>${monthName(x)}</option>`).join("")}</select></span></div>
   <div class="stat-row">
     <div class="stat"><span>Spent</span><b class="num" style="text-align:left">${money(s)}</b></div>
     <div class="stat"><span>Money in</span><b class="num in" style="text-align:left">${money(got(cur))}</b></div>
@@ -831,6 +851,7 @@ function renderReports(){
   <div class="panel pad" style="margin-top:1.2rem"><h2>Compared with ${monthName(pym)}</h2>${cats.length?cats.map(([k,v])=>{const d=v-(lastCat[k]||0);return`<div class="bar-row"><span>${esc(k)}</span><div class="bar"><i style="width:${Math.max(2,v/max*100)}%;background:${catColor(k)}"></i></div>
       <span class="num">${money(v)}<br><small class="${d>0?"neg":"in"}" style="font-weight:400">${(d>0?"+":"")+money(d)}</small></span></div>`}).join(""):`<p class="note">Nothing to compare yet.</p>`}</div>`;
   document.getElementById("rm").onchange=e=>{filterMonth=e.target.value;renderReports()};
+  document.getElementById("showSubs").onchange=e=>{S.showSubs=e.target.checked;persistLocal();if(DESK)deskSave();renderReports()};
 }
 
 function catColor(name){if(rankColors[name])return rankColors[name];const i=S.categories.findIndex(c=>c.name===name);return i<0?"#9AA5A0":PALETTE[i%PALETTE.length]}
@@ -874,32 +895,49 @@ function renderCategories(){
       <td class="acts"><button data-redit="${r.id}">Edit</button></td></tr>`).join("")}</tbody></table>`:`<p class="note"><i>No rules yet.</i></p>`}
   </div>
   <h2>Categories</h2>
-  <div class="panel pad" style="max-width:640px">
+  <div class="panel pad" style="max-width:720px">
     <div class="cat-edit"><input id="newCat" placeholder="New category name"><select id="newKind"><option value="spend">Spending</option><option value="income">Money in</option><option value="transfer">Transfer</option></select><button class="primary" id="addCat">Add</button></div>
+    <p class="note" style="margin:.3rem 0 0">Use <b>+ Sub</b> to add subcategories, like Travel › Flights. Spending charts add subcategories into their main category unless you choose Show subcategories.</p>
     <hr style="border:0;border-top:1px solid var(--line);margin:.8rem 0">
-    ${S.categories.map((c,i)=>`<div class="cat-edit"><input data-n="${i}" value="${esc(c.name)}"><select data-kd="${i}"><option value="spend">Spending</option><option value="income">Money in</option><option value="transfer">Transfer</option></select>
-      <button class="danger" data-del="${i}" title="${used[c.name]||0} transactions use this">Remove</button></div>`).join("")}
+    ${S.categories.filter(c=>!parentOf(c.name)).map(c=>{const kids=S.categories.filter(k=>parentOf(k.name)===c.name);
+      return`<div class="cat-edit" style="grid-template-columns:1fr 150px auto auto"><input data-cn="${esc(c.name)}" value="${esc(c.name)}">
+        <select data-ck="${esc(c.name)}"><option value="spend">Spending</option><option value="income">Money in</option><option value="transfer">Transfer</option></select>
+        <button data-addsub="${esc(c.name)}">+ Sub</button><button class="danger" data-cdel="${esc(c.name)}" title="${used[c.name]||0} transactions use this">Remove</button></div>
+      ${kids.map(k=>`<div class="cat-edit" style="grid-template-columns:1fr auto;padding-left:2rem"><span style="display:flex;gap:.5rem;align-items:center"><span class="note">↳</span><input data-sn="${esc(k.name)}" value="${esc(subOf(k.name))}" style="flex:1"></span>
+        <button class="danger" data-cdel="${esc(k.name)}" title="${used[k.name]||0} transactions use this">Remove</button></div>`).join("")}`}).join("")}
   </div>`;
-  S.categories.forEach((c,i)=>document.querySelector(`[data-kd="${i}"]`).value=c.kind);
+  S.categories.forEach(c=>{const el=document.querySelector(`[data-ck="${CSS.escape(c.name)}"]`);if(el)el.value=c.kind});
   document.getElementById("addRule").onclick=()=>ruleDialog();
   document.getElementById("autoClean").onchange=e=>{S.autoClean=e.target.checked;markDirty();toast(e.target.checked?"Bank names will be cleaned up":"Bank names will be kept as they are")};
   document.querySelectorAll("[data-redit]").forEach(b=>b.onclick=()=>ruleDialog(S.rules.find(r=>r.id===b.dataset.redit)));
   document.getElementById("runRules").onclick=()=>{let n=0;for(const t of S.txns){let ch=applyRule(t);
       if(!ch&&S.autoClean!==false&&!t.xfer){const raw=t.orig||t.payee,c=cleanPayee(raw);if(c!==t.payee&&c!==raw){if(!t.orig)t.orig=raw;t.payee=c;ch=true}}if(ch)n++}
     if(n){markDirty();renderCategories();toast(`Cleaned up ${n} ${n===1?"transaction":"transactions"}`)}else toast("No transactions matched your rules")};
-  document.getElementById("addCat").onclick=()=>{const n=document.getElementById("newCat").value.trim();if(!n)return;
-    if(S.categories.some(c=>c.name.toLowerCase()===n.toLowerCase())){toast("That category already exists.");return}
+  const nameOk=(n,except,isSub)=>{if(!n){toast("Enter a name.");return false}if(!isSub&&n.includes(":")){toast("Names can't contain a colon.");return false}
+    if(S.categories.some(c=>c.name!==except&&c.name.toLowerCase()===n.toLowerCase())){toast("That category already exists.");return false}return true};
+  document.getElementById("addCat").onclick=()=>{const n=document.getElementById("newCat").value.trim();if(!nameOk(n))return;
     S.categories.push({name:n,kind:document.getElementById("newKind").value});markDirty();renderCategories();toast("Category added")};
-  document.querySelectorAll("[data-n]").forEach(inp=>inp.onchange=()=>{const c=S.categories[+inp.dataset.n],old=c.name,nw=inp.value.trim();
-    if(!nw||S.categories.some(x=>x!==c&&x.name.toLowerCase()===nw.toLowerCase())){inp.value=old;toast("Use a different name.");return}
-    c.name=nw;S.txns.forEach(t=>{if(t.cat===old)t.cat=nw});for(const k in S.payeeMap)if(S.payeeMap[k]===old)S.payeeMap[k]=nw;
-    (S.recurring||[]).forEach(r=>{if(r.cat===old)r.cat=nw});(S.rules||[]).forEach(r=>{if(r.cat===old)r.cat=nw});markDirty();toast("Renamed")});
-  document.querySelectorAll("[data-kd]").forEach(s=>s.onchange=()=>{S.categories[+s.dataset.kd].kind=s.value;markDirty()});
-  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{const c=S.categories[+b.dataset.del],n=used[c.name]||0;
-    if(n&&!confirm(`${n} transactions use "${c.name}". They'll become uncategorized. Remove it?`))return;
-    S.txns.forEach(t=>{if(t.cat===c.name)t.cat=""});(S.recurring||[]).forEach(r=>{if(r.cat===c.name)r.cat=""});
-    (S.rules||[]).forEach(r=>{if(r.cat===c.name)r.cat=""});S.rules=(S.rules||[]).filter(r=>r.rename||r.cat);
-    for(const k in S.payeeMap)if(S.payeeMap[k]===c.name)delete S.payeeMap[k];S.categories.splice(+b.dataset.del,1);markDirty();renderCategories()});
+  document.querySelectorAll("[data-cn]").forEach(inp=>inp.onchange=()=>{const old=inp.dataset.cn,nw=inp.value.trim();
+    if(nw===old)return;if(!nameOk(nw,old)){inp.value=old;return}renameCategory(old,nw);markDirty();renderCategories();toast("Renamed")});
+  document.querySelectorAll("[data-sn]").forEach(inp=>inp.onchange=()=>{const old=inp.dataset.sn,par=parentOf(old),sub=inp.value.trim();
+    if(sub===subOf(old))return;if(!sub||sub.includes(":")){inp.value=subOf(old);toast(sub?"Names can't contain a colon.":"Enter a name.");return}
+    const nw=par+": "+sub;if(!nameOk(nw,old,true)){inp.value=subOf(old);return}renameCategory(old,nw);markDirty();renderCategories();toast("Renamed")});
+  document.querySelectorAll("[data-ck]").forEach(sel=>sel.onchange=()=>{const n=sel.dataset.ck;
+    S.categories.forEach(c=>{if(c.name===n||parentOf(c.name)===n)c.kind=sel.value});markDirty()});
+  document.querySelectorAll("[data-addsub]").forEach(b=>b.onclick=()=>{const par=b.dataset.addsub;
+    openDlg(`<div class="dlg-h"><h2>Add a subcategory to ${esc(par)}</h2><button class="x" data-close aria-label="Close">×</button></div>
+      <div class="dlg-b"><div class="form"><label class="full">Subcategory name<input id="subName" placeholder="Flights"></label></div></div>
+      <div class="dlg-f"><button data-close>Cancel</button><button class="primary" id="subGo">Add</button></div>`);
+    const go=()=>{const sub=document.getElementById("subName").value.trim();if(!sub||sub.includes(":")){toast(sub?"Names can't contain a colon.":"Enter a name.");return}
+      const nw=par+": "+sub;if(!nameOk(nw,null,true))return;const kind=(S.categories.find(c=>c.name===par)||{}).kind||"spend";
+      const at=S.categories.map(c=>c.name===par||parentOf(c.name)===par).lastIndexOf(true)+1;S.categories.splice(at,0,{name:nw,kind});
+      dlg.close();markDirty();renderCategories();toast(`Added ${par} › ${sub}`)};
+    document.getElementById("subGo").onclick=go;document.getElementById("subName").onkeydown=e=>{if(e.key==="Enter")go()};document.getElementById("subName").focus()});
+  document.querySelectorAll("[data-cdel]").forEach(b=>b.onclick=()=>{const name=b.dataset.cdel;
+    const kids=S.categories.filter(c=>parentOf(c.name)===name);
+    const n=S.txns.filter(t=>t.cat===name||kids.some(k=>k.name===t.cat)).length;
+    const msg=kids.length?`Remove "${name}" and its ${kids.length} subcategories?${n?` ${n} transactions will become uncategorized.`:""}`:n?`${n} transactions use "${name}". They'll become uncategorized. Remove it?`:"";
+    if(msg&&!confirm(msg))return;kids.forEach(k=>removeCategory(k.name));removeCategory(name);markDirty();renderCategories();toast("Removed")});
 }
 
 function ruleDialog(r,preset){const isNew=!r;const v=r||Object.assign({match:"",rename:"",cat:""},preset||{});
