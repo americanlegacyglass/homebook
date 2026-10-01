@@ -41,6 +41,13 @@ jobs:
           node --check preload.js
           node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))"
           node -e "const s=require('fs').readFileSync('app/index.html','utf8');if(!s.startsWith('<!DOCTYPE html>'))throw new Error('app/index.html is not the Homebook app file');require('vm').createScript(s.split('<script>')[1].split('</script>')[0])"
+          # Catch real mistakes a syntax check misses: unreachable code (code after a return), undefined names, duplicate keys.
+          node -e "const s=require('fs').readFileSync('app/index.html','utf8');require('fs').writeFileSync('app.check.js',s.split('<script>')[1].split('</script>')[0])"
+          npx --yes eslint@8 --no-eslintrc --env browser,es2022 --parser-options=ecmaVersion:2022 --global CSS \
+            --rule 'no-unreachable: error' --rule 'no-undef: error' --rule 'no-dupe-keys: error' --rule 'no-redeclare: error' --rule 'no-const-assign: error' app.check.js
+          npx --yes eslint@8 --no-eslintrc --env node,es2022 --parser-options=ecmaVersion:2022 \
+            --rule 'no-unreachable: error' --rule 'no-undef: error' --rule 'no-dupe-keys: error' main.js preload.js
+          rm -f app.check.js
           echo "All code files look valid."
 
       - name: Create version tag
