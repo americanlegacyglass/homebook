@@ -418,6 +418,7 @@ function renderRegister(){
   </div>
   ${isDebt(a)?debtLine(a):""}
   ${isDebt(a)&&bal>0?`<p class="warn" style="margin-bottom:1rem">This account shows a <b>positive</b> balance, meaning you've paid in more than you owe. If that isn't right, check that charges are in the <b>Charge</b> column, payments are in the <b>Payment</b> column, and the starting balance is what you owed.</p>`:""}
+  ${dupeBanner()}
   ${upcomingStrip(a.id)}
   <div class="toolbar">
     <input type="search" id="q" placeholder="Search payee, memo, amount" value="${esc(search)}" style="width:260px">
@@ -460,6 +461,7 @@ function renderRegister(){
   if($("recBtn"))$("recBtn").onclick=reconcileDialog;
   if($("valBtn"))$("valBtn").onclick=()=>valueDialog(a);
   if($("loanPayBtn"))$("loanPayBtn").onclick=()=>loanPaymentDialog(a);
+  bindDupes();
   $("xferBtn").onclick=()=>transferDialog(a.id);
   document.querySelectorAll("[data-up-enter]").forEach(b=>b.onclick=()=>{enterRecurring(S.recurring.find(r=>r.id===b.dataset.upEnter));markDirty();render();toast("Entered")});
   $("editAcct").onclick=e=>{e.preventDefault();accountDialog(a)};
@@ -569,10 +571,19 @@ function advance(r){const day=r.day||+r.next.slice(8);
 function enterRecurring(r,quiet){if(!r)return false;if(!S.accounts.some(a=>a.id===r.acct)){if(!quiet)toast("That payment's account no longer exists. Edit it first.");return false}
   const t={id:uid(),seq:nextSeq(),acct:r.acct,date:r.next,num:"",payee:r.payee,memo:r.memo||"",cat:r.cat||"",amt:r.amt,status:"",recId:r.id};S.txns.push(t);
   if(r.toAcct&&r.toAcct!==r.acct&&acctOf(r.toAcct))S.txns.push(makePartner(t,r.toAcct));
-  return true;
-  learnPayee(r.payee,r.cat);advance(r)}
+  learnPayee(r.payee,r.cat);advance(r);return true}
 function runAutoRecurring(){let n=0;const t=today();
-  for(const r of S.recurring||[]){let guard=0;while(r.auto&&r.next<=t&&guard++<60){if(!enterRecurring(r,true))break;n++}}return n}
+  for(const r of S.recurring||[]){let guard=0;while(r.auto&&r.next<=t&&guard++<60){const before=r.next;if(!enterRecurring(r,true))break;n++;if(r.next<=before)break}}return n}
+function recurringDupes(){ // same recurring payment, same account, same date, same amount: keep the first, flag the rest
+  const seen=new Set(),ids=new Set(),xf=new Set();
+  for(const t of sorted(S.txns)){if(!t.recId)continue;const k=[t.recId,t.acct,t.date,t.amt].join("|");
+    if(seen.has(k)){ids.add(t.id);if(t.xfer)xf.add(t.xfer)}else seen.add(k)}
+  return{ids,xf,n:ids.size}}
+function dupeBanner(){const d=recurringDupes();if(!d.n)return"";
+  return`<div class="upcoming" style="border-left-color:var(--red)"><b>Duplicates found</b><span>${d.n} extra ${d.n===1?"copy":"copies"} of payments entered by Recurring: the same payment on the same date.</span><button class="primary" id="fixDupes">Remove the extras</button></div>`}
+function bindDupes(){const b=document.getElementById("fixDupes");if(!b)return;
+  b.onclick=()=>{const d=recurringDupes();if(!d.n)return;if(!confirm(`Remove ${d.n} duplicate ${d.n===1?"entry":"entries"}? One copy of each payment stays.`))return;
+    S.txns=S.txns.filter(t=>!d.ids.has(t.id)&&!(t.xfer&&d.xf.has(t.xfer)));markDirty();render();toast(`Removed ${d.n} duplicate ${d.n===1?"entry":"entries"}`)}}
 function daysUntil(iso){return Math.round((new Date(iso+"T12:00")-new Date(today()+"T12:00"))/864e5)}
 function dueBadge(iso,incoming){const d=daysUntil(iso),n=x=>x===1?"1 day":x+" days";
   if(incoming){
@@ -596,6 +607,7 @@ function renderRecurring(){
   const groups=["Bills and payments","Subscriptions","Transfers and savings","Money coming in"];
   m.innerHTML=`<div class="head"><div><h1>Recurring</h1><p class="sub">Bills, subscriptions, transfers and paychecks that repeat.</p></div>
     <button class="primary" id="addRec">Add recurring payment</button></div>
+  ${dupeBanner()}
   ${R.length?`<div class="stat-row">
     <div class="stat"><span>Bills and subscriptions, per month</span><b class="num" style="text-align:left">${money(Math.round(monthlyOut))}</b></div>
     <div class="stat"><span>Subscriptions alone</span><b class="num" style="text-align:left">${money(Math.round(monthlySubs))}</b></div>
@@ -611,6 +623,7 @@ function renderRecurring(){
     </tbody></table></div></div>`}).join(""):`<div class="panel empty"><b>No recurring payments yet</b>Add rent, utilities, phone, streaming services, paychecks, or a monthly transfer to savings.
       Homebook will remind you when they're due, or enter them for you.<br><br><button class="primary" id="addRec2">Add recurring payment</button></div>`}
   <p class="note" style="margin-top:1rem">Tip: open any transaction in the register and click Make this repeat.</p>`;
+  bindDupes();
   const add=()=>recurringDialog();document.getElementById("addRec").onclick=add;const a2=document.getElementById("addRec2");if(a2)a2.onclick=add;
   m.querySelectorAll("[data-enter]").forEach(b=>b.onclick=()=>{enterRecurring(S.recurring.find(r=>r.id===b.dataset.enter));markDirty();render();toast("Entered in the register")});
   m.querySelectorAll("[data-skip]").forEach(b=>b.onclick=()=>{const r=S.recurring.find(x=>x.id===b.dataset.skip);if(!confirm(`Skip ${r.payee} on ${fmtDate(r.next)}?`))return;advance(r);markDirty();render();toast("Skipped")});
