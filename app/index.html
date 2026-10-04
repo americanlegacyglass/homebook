@@ -217,6 +217,11 @@ function ensureCats(){const v=S.catsVersion||1;if(v>=CATS_VERSION)return false;
   S.catsVersion=CATS_VERSION;return true}
 const parentOf=n=>{n=String(n||"");const i=n.indexOf(": ");return i>0?n.slice(0,i):null};
 const subOf=n=>{n=String(n||"");const i=n.indexOf(": ");return i>0?n.slice(i+2):n};
+const cmpName=(a,b)=>String(a).localeCompare(String(b),undefined,{sensitivity:"base",numeric:true});
+function sortedCats(list){ // A to Z, with each category's subcategories (also A to Z) directly under it
+  list=list||S.categories;const tops=list.filter(c=>!parentOf(c.name)).sort((a,b)=>cmpName(a.name,b.name)),out=[];
+  for(const t of tops){out.push(t);list.filter(k=>parentOf(k.name)===t.name).sort((a,b)=>cmpName(subOf(a.name),subOf(b.name))).forEach(k=>out.push(k))}
+  const seen=new Set(out.map(c=>c.name));list.filter(c=>!seen.has(c.name)).sort((a,b)=>cmpName(a.name,b.name)).forEach(c=>out.push(c));return out}
 function renameCategory(old,nw){
   const map=new Map([[old,nw]]);S.categories.forEach(c=>{if(parentOf(c.name)===old)map.set(c.name,nw+": "+subOf(c.name))});
   for(const[o,n]of map){const c=S.categories.find(x=>x.name===o);if(c)c.name=n;
@@ -392,10 +397,10 @@ function fixCat(el){const r=resolveCat(el.value);if(r!==null){el.value=r;return 
   el.value="";return false}
 function readCat(el){const r=resolveCat(el.value);if(r===null){el.focus();toast("Pick a category from the list, or leave it blank.");return null}el.value=r;return r}
 function refreshCatList(){let dl=document.getElementById("catlist");if(!dl){dl=document.createElement("datalist");dl.id="catlist";document.body.appendChild(dl)}
-  dl.innerHTML=S.categories.map(c=>`<option value="${esc(c.name)}">`).join("")}
+  dl.innerHTML=sortedCats().map(c=>`<option value="${esc(c.name)}">`).join("")}
 document.addEventListener("change",e=>{if(e.target.classList&&e.target.classList.contains("catin"))fixCat(e.target)},true);
 document.addEventListener("focusin",e=>{if(e.target.classList&&e.target.classList.contains("catin"))e.target.select()});
-function catOptions(sel){return`<option value="">Choose category</option>`+S.categories.map(c=>`<option ${c.name===sel?"selected":""}>${esc(c.name)}</option>`).join("")}
+function catOptions(sel){return`<option value="">Choose category</option>`+sortedCats().map(c=>`<option ${c.name===sel?"selected":""}>${esc(c.name)}</option>`).join("")}
 function renderRegister(){
   const m=document.getElementById("main");
   if(!S.accounts.length){m.innerHTML=`<div class="panel empty" style="margin-top:3rem"><b>Start by adding your checking account</b>
@@ -523,10 +528,11 @@ function accountDialog(a){
     else{a.name=name;a.type=type;a.opening=opening;delete a.rate;delete a.pay;delete a.escrow;Object.assign(a,extra)}
     dlg.close();markDirty();render()};
   const d=document.getElementById("aDel");
-  if(d)d.onclick=()=>{const n=acctTx(a.id).length;if(!confirm(`Delete "${a.name}" and its ${n} transactions? This can't be undone.`))return;
+  if(d)d.onclick=()=>{const n=acctTx(a.id).length,nr=(S.recurring||[]).filter(r=>r.acct===a.id||r.toAcct===a.id).length;
+    if(!confirm(`Delete "${a.name}" and its ${n} transactions${nr?`, and the ${nr} recurring ${nr===1?"payment":"payments"} that use it`:""}? You can undo this right afterward.`))return;
     const gone=new Set(S.txns.filter(t=>t.acct===a.id&&t.xfer).map(t=>t.xfer));
     S.txns=S.txns.filter(t=>t.acct!==a.id);S.txns.forEach(t=>{if(t.xfer&&gone.has(t.xfer))delete t.xfer});
-    S.recurring=(S.recurring||[]).filter(r=>r.acct!==a.id);S.recurring.forEach(r=>{if(r.toAcct===a.id)r.toAcct=""});
+    S.recurring=(S.recurring||[]).filter(r=>r.acct!==a.id&&r.toAcct!==a.id);
     S.accounts=S.accounts.filter(x=>x.id!==a.id);curAcct=S.accounts[0]?.id||null;dlg.close();markDirty();render()};
 }
 function txDialog(t){
@@ -1035,7 +1041,7 @@ function renderBudget(){
   const[y,mo]=ym.split("-").map(Number);const shift=n=>{const d=new Date(y,mo-1+n,1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")};
   const spendM=monthSpend(ym),spendY=monthSpend(String(y)); // monthSpend matches by date prefix, so a year works too
   const yearly=n=>S.budgetPer[n]==="year";
-  const names=S.categories.map(c=>c.name).filter(n=>n in S.budgets);
+  const names=sortedCats().map(c=>c.name).filter(n=>n in S.budgets);
   const mk=(n,spend)=>{const b=S.budgets[n],sp=Math.max(0,spentFor(n,spend));return{n,b,sp,left:b-sp,pct:b?sp/b:0}};
   const mRows=names.filter(n=>!yearly(n)).map(n=>mk(n,spendM)),yRows=names.filter(yearly).map(n=>mk(n,spendY));
   const top=(rows,per)=>rows.filter(r=>{const p=parentOf(r.n);return!(p&&p in S.budgets&&yearly(p)===per)}); // a sub-budget inside a same-period parent isn't counted twice
@@ -1094,7 +1100,7 @@ function renderBudget(){
   m.querySelectorAll("[data-b]").forEach(inp=>inp.onchange=()=>{const a=Math.abs(toCents(inp.value)),n=inp.dataset.b;
     if(!a){inp.value=(S.budgets[n]/100).toFixed(2);toast("Use × to remove a budget.");return}S.budgets[n]=a;markDirty();renderBudget()});
   m.querySelectorAll("[data-brm]").forEach(b=>b.onclick=()=>{delete S.budgets[b.dataset.brm];delete S.budgetPer[b.dataset.brm];markDirty();renderBudget();toast("Budget removed")});
-  $("bSuggest").onclick=()=>{const cand=S.categories.filter(c=>c.kind==="spend"&&!parentOf(c.name)).map(c=>[c.name,avgSpend(c.name,3)]).filter(([n,v])=>v>=500&&!(n in S.budgets));
+  $("bSuggest").onclick=()=>{const cand=sortedCats().filter(c=>c.kind==="spend"&&!parentOf(c.name)).map(c=>[c.name,avgSpend(c.name,3)]).filter(([n,v])=>v>=500&&!(n in S.budgets));
     if(!cand.length){toast("Not enough past spending to suggest from yet.");return}
     openDlg(`<div class="dlg-h"><h2>Suggested monthly budgets</h2><button class="x" data-close aria-label="Close">×</button></div>
       <div class="dlg-b"><p class="note" style="margin-top:0">Based on the average of the last 3 months, rounded up. Uncheck anything you don't want to track.</p>
@@ -1109,7 +1115,7 @@ function avgSpend(name,months){const now=today().slice(0,7);const[y,m]=now.split
   return Math.round(tot/months)}
 
 /* ---------- categories ---------- */
-function renderCategories(){
+function renderCategories(){refreshCatList();
   const m=document.getElementById("main");
   const used={};S.txns.forEach(t=>used[t.cat]=(used[t.cat]||0)+1);
   const R=S.rules||[];
@@ -1128,7 +1134,7 @@ function renderCategories(){
     <div class="cat-edit"><input id="newCat" placeholder="New category name"><select id="newKind"><option value="spend">Spending</option><option value="income">Money in</option><option value="transfer">Transfer</option></select><button class="primary" id="addCat">Add</button></div>
     <p class="note" style="margin:.3rem 0 0">Use <b>+ Sub</b> to add subcategories, like Travel › Flights. Spending charts add subcategories into their main category unless you choose Show subcategories.</p>
     <hr style="border:0;border-top:1px solid var(--line);margin:.8rem 0">
-    ${S.categories.filter(c=>!parentOf(c.name)).map(c=>{const kids=S.categories.filter(k=>parentOf(k.name)===c.name);
+    ${sortedCats().filter(c=>!parentOf(c.name)).map(c=>{const kids=sortedCats().filter(k=>parentOf(k.name)===c.name);
       return`<div class="cat-edit" style="grid-template-columns:1fr 150px auto auto"><input data-cn="${esc(c.name)}" value="${esc(c.name)}">
         <select data-ck="${esc(c.name)}"><option value="spend">Spending</option><option value="income">Money in</option><option value="transfer">Transfer</option></select>
         <button data-addsub="${esc(c.name)}">+ Sub</button><button class="danger" data-cdel="${esc(c.name)}" title="${used[c.name]||0} transactions use this">Remove</button></div>
